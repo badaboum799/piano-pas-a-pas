@@ -406,9 +406,9 @@ function b64ToBuf(s){const bin=atob(s),b=new Uint8Array(bin.length);for(let i=0;
    3. l'app assemble les pages, vérifie que chaque mesure a le bon nombre de temps et corrige si besoin.
    La clé reste dans le navigateur de l'appareil et n'est envoyée qu'à OpenRouter. */
 const AI_MODELS=[
-  ['anthropic/claude-opus-5.5','Claude Opus 5.5 (recommandé, ~0,07 $/page)'],
-  ['anthropic/claude-sonnet-5.5','Claude Sonnet 5.5 (moins cher, ~0,04 $/page)'],
-  ['anthropic/claude-fable-5.1','Claude Fable 5.1 (le plus précis, ~0,18 $/page)'],
+  ['anthropic/claude-opus-5.5','Claude Opus 5.5 (recommandé, ~0,10 $/page)'],
+  ['anthropic/claude-sonnet-5.5','Claude Sonnet 5.5 (moitié prix, ~0,05 $/page)'],
+  ['anthropic/claude-fable-5.1','Claude Fable 5.1 (le plus précis, ~0,25 $/page)'],
 ];
 const AI_MAX_PAGES=12;
 let pdfjsReady=null;
@@ -482,7 +482,7 @@ function aiPrompt(page,total,ctx,nSys){
 ${nSys?`The first image is the whole page at low resolution, only for the overview (title, tempo, clefs, time and key signatures). The next ${nSys} images are the ${nSys} systems of the page (treble + bass staff), top to bottom, zoomed in: read the notes from these zoomed images, system by system, measure by measure.`:'The image is the whole page.'}
 ${ctx.measures?`Context from the previous pages: ${ctx.measures} measures already transcribed; time signature in force: ${ctx.time[0]}/${ctx.time[1]}; key signature in force: ${ctx.key} (number of sharps, negative for flats). Continue from there.`:'This is the first page.'}
 
-Output ONLY a JSON object (no markdown, no comments):
+Output ONLY a minified JSON object on a single line: no markdown, no comments, no indentation, no line breaks, no spaces outside the voice strings. Do not explain anything. Format:
 {"title": string or null, "composer": string or null, "tempo": quarter-note BPM or null, "time": [beats, beatType] in force at the start of this page, "key": key signature in force at the start of this page (sharps, negative for flats),
  "measures": [{"time": [b, bt] only if it changes here, "key": n only if it changes here, "pickup": true only for an incomplete first measure, "rh": ["voice", ...], "lh": ["voice", ...]}]}
 
