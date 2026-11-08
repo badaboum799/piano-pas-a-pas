@@ -53,6 +53,11 @@ select{max-width:240px}
 .check{display:flex;align-items:center;gap:8px;color:var(--text);font-size:14px}
 .check input{width:18px;height:18px;accent-color:var(--accent)}
 .credit{font-size:11px;color:var(--muted)}
+#impList{display:flex;flex-direction:column;gap:6px}
+.imp{display:flex;align-items:center;gap:8px;color:var(--text);font-size:14px}
+.imp span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.imp .btn{padding:4px 10px;font-size:12px}
+.btn.danger{color:#ff9aa8;border-color:rgba(255,93,115,.4)}
 #orKey{font:inherit;font-size:14px;color:var(--text);background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px 12px;width:100%;-webkit-user-select:text;user-select:text}
 #orModel{max-width:100%}
 #aiBar{height:6px;background:var(--line);border-radius:3px;overflow:hidden;margin-top:12px}
@@ -157,6 +162,9 @@ kbd{background:var(--panel2);border:1px solid var(--line);border-radius:4px;padd
     </div>
     <div class="field compact-only">Partition personnelle (MusicXML, MIDI, PDF ou photo)
       <div class="row"><label class="btn" for="fileIn">Importer une partition</label></div>
+    </div>
+    <div class="field">Mes partitions importées
+      <div id="impList"></div>
     </div>
     <div class="field">Partition
       <div class="seg" data-key="simp">
@@ -1120,7 +1128,7 @@ function rr(x,y,w,h,r){
   r=Math.max(0,Math.min(r,w/2,h/2));ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);
   ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();
 }
-const HAND={R:'#5aa9ff',L:'#ff9f5a'},HAND_SOFT={R:'#cfe4ff',L:'#ffdcc2'},HAND_DARK={R:'#2f6fb8',L:'#b8692f'};
+const HAND={R:'#5aa9ff',L:'#ff9f5a'},HAND_SHARP={R:'#2c6fcc',L:'#cf6a1c'},HAND_SOFT={R:'#cfe4ff',L:'#ffdcc2'},HAND_DARK={R:'#2f6fb8',L:'#b8692f'};
 function kbHeight(){return Math.min(170,Math.max(90,H*.24));}
 
 function draw(){
@@ -1150,15 +1158,16 @@ function draw(){
     if(yT>hitY||yB<0) continue;
     const k=L.map[n.midi];if(!k) continue;
     const x=k.x+1.5,w=k.w-3,h=Math.max(4,n.dur*ppb-3);
-    let col=HAND[n.hand];
+    const blk=isBlack(n.midi); // touche noire : même couleur de main, en plus foncé
+    let col=blk?HAND_SHARP[n.hand]:HAND[n.hand];
     ctx.globalAlpha=n.play?1:(S.mode==='listen'?.6:.25);
-    if(n.hit) col='#3ddc97';else if(n.missed) col='#59607f';
+    if(n.hit) col=blk?'#1f9e6c':'#3ddc97';else if(n.missed) col='#59607f';
     const active=(n.play||S.mode==='listen')&&pos>=n.start-1e-3&&pos<n.start+n.dur;
     if(active&&!n.missed){ctx.shadowColor=col;ctx.shadowBlur=16;}
     ctx.fillStyle=col;rr(x,yB-h,w,h,Math.min(7,w/3));ctx.fill();ctx.shadowBlur=0;
     if(n.play&&!n.hit&&!n.missed){ctx.strokeStyle='rgba(255,255,255,.35)';ctx.lineWidth=1;ctx.stroke();}
     if(S.names&&n.play&&h>17&&w>13){
-      ctx.globalAlpha=1;ctx.fillStyle='rgba(10,12,25,.85)';ctx.textAlign='center';
+      ctx.globalAlpha=1;ctx.fillStyle=blk?'rgba(255,255,255,.95)':'rgba(10,12,25,.85)';ctx.textAlign='center';
       ctx.font=`700 ${Math.min(13,w*.42)}px -apple-system,sans-serif`;ctx.fillText(fmtName(n.midi),k.x+k.w/2,yB-6);
     }
     ctx.globalAlpha=1;
@@ -1350,6 +1359,32 @@ function fillSongs(){
   const sel=$('songSel');sel.innerHTML='';
   SONGS.forEach(s=>{const o=document.createElement('option');o.value=s.id;o.textContent=(s.imported?'📄 ':'')+s.title;sel.appendChild(o);});
   sel.value=SONG.id;
+  renderImports();
+}
+// Liste des partitions importées, avec un bouton pour supprimer chacune (les morceaux intégrés restent)
+function renderImports(){
+  const box=$('impList');box.innerHTML='';
+  const imps=SONGS.filter(s=>s.imported);
+  if(!imps.length){const e=document.createElement('span');e.className='credit';e.textContent='Aucune partition importée.';box.appendChild(e);return;}
+  for(const s of imps){
+    const row=document.createElement('div');row.className='imp';
+    const t=document.createElement('span');t.textContent='📄 '+s.title;t.title=s.title;
+    const b=document.createElement('button');b.className='btn ghost danger';b.textContent='Supprimer';b.onclick=()=>deleteImports([s]);
+    row.append(t,b);box.appendChild(row);
+  }
+  if(imps.length>1){const b=document.createElement('button');b.className='btn ghost danger';b.textContent=`Tout supprimer (${imps.length})`;b.onclick=()=>deleteImports(imps);box.appendChild(b);}
+  const note=document.createElement('span');note.className='credit';note.textContent="L'app garde au plus 10 partitions importées sur cet appareil.";box.appendChild(note);
+}
+function deleteImports(list){
+  const msg=list.length===1?`Supprimer « ${list[0].title} » de cet appareil ?`:`Supprimer les ${list.length} partitions importées de cet appareil ?`;
+  if(!confirm(msg+'\n(Pour une partition lue par l\'IA, il faudrait payer une nouvelle lecture pour la récupérer.)')) return;
+  const ids=new Set(list.map(s=>s.id));
+  store.set('imports',store.get('imports',[]).filter(i=>!ids.has(i.id)));
+  const bests=store.get('best',{});for(const k in bests) if(ids.has(k.split('|')[0])) delete bests[k];store.set('best',bests);
+  for(const s of list){const i=SONGS.indexOf(s);if(i>=0) SONGS.splice(i,1);}
+  if(ids.has(SONG.id)){SONG=SONGS[0];store.set('song',SONG.id);S.from=1;S.to=9999;layoutKey='';resetRun();}
+  fillSongs();refreshUI();
+  toast(list.length===1?`« ${list[0].title} » supprimée.`:`${list.length} partitions supprimées.`);
 }
 $('songSel').onchange=e=>{SONG=SONGS.find(s=>s.id===e.target.value);store.set('song',SONG.id);S.from=1;S.to=9999;layoutKey='';refreshUI();resetRun();e.target.blur();};
 $('fileIn').onchange=async e=>{
