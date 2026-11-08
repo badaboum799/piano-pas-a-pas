@@ -349,8 +349,7 @@ function parseMIDI(buf,title){
           const st=open[k]&&open[k].shift();
           if(st!==undefined&&ch!==9){ // canal 10 = percussions, ignoré
             const key=tr+'|'+ch;if(!groups.has(key)) groups.set(key,[]);
-            const q12=x=>Math.round(x*12)/12; // on aligne sur une grille fine pour regrouper les accords
-            groups.get(key).push({midi:n,start:q12(st/division),dur:Math.max(1/12,q12((tick-st)/division))});
+            groups.get(key).push({midi:n,start:st/division,dur:Math.max(1/32,(tick-st)/division)});
           }
         }
       }else if(type===0xc0||type===0xd0) q+=1;
@@ -365,6 +364,14 @@ function parseMIDI(buf,title){
     gs.sort((x,y)=>avg(y)-avg(x));gs[0].forEach(n=>n.hand='R');gs[1].forEach(n=>n.hand='L');notes=gs.flat();
   }else{ // sinon on coupe au Do central
     notes=gs.flat();notes.forEach(n=>n.hand=n.midi>=60?'R':'L');
+  }
+  // Les notes d'un accord joué « à la main » ne tombent pas exactement ensemble : on regroupe les
+  // départs à moins de 1/32 de temps d'écart. Les rythmes écrits (même les quadruples croches) restent exacts.
+  notes.sort((a,b)=>a.start-b.start);
+  let anchor=-1;
+  for(const n of notes){
+    if(anchor>=0&&n.start-anchor<1/32){const end=n.start+n.dur;n.start=anchor;n.dur=end-anchor;}
+    else anchor=n.start;
   }
   return finalizeSong({id:'imp-'+Date.now(),title,composer:'',bpm:Math.min(240,Math.max(30,Math.round(tempo||90))),
     beatsPerMeasure:ts?ts[0]*4/ts[1]:4,measureStarts:[],notes,imported:true});
@@ -479,7 +486,7 @@ function update(dt){
 
 function noteOn(midi,vel,src){
   pressed.add(midi);
-  if(src!=='midi'&&S.appSound) playTone(midi,1,vel);
+  if(src!=='midi'&&S.appSound){voices[midi]?.release();voices[midi]=playTone(midi,null,vel);} // tenue tant que la touche est enfoncée
   if(!R||!R.playing){keyFx[midi]={c:'press',t:performance.now()};return;}
   const now=performance.now();
   if(S.mode==='wait'){
@@ -508,7 +515,8 @@ function noteOn(midi,vel,src){
     }
   }
 }
-function noteOff(midi){pressed.delete(midi);}
+const voices={};
+function noteOff(midi){pressed.delete(midi);if(voices[midi]){voices[midi].release();delete voices[midi];}}
 function popup(midi,text,color){popups.push({midi,text,color,t:performance.now()});}
 
 /* ================= Fin de partie & adaptation du niveau ================= */
@@ -563,19 +571,36 @@ function audio(){
   if(actx&&actx.state==='suspended') actx.resume();
   return actx;
 }
+// Joue une note qui dure exactement `dur` secondes : attaque, son tenu (qui baisse doucement comme
+// un piano) jusqu'à la fin de la note, puis relâchement rapide. Avec dur=null, la note est tenue
+// jusqu'à l'appel de release() (touche de l'écran ou du clavier d'ordinateur relâchée).
 function playTone(midi,dur=1,vel=.7){
-  const a=actx;if(!a) return;
-  const t=a.currentTime,f=440*Math.pow(2,(midi-69)/12);
-  const g=a.createGain();g.gain.setValueAtTime(0.0001,t);
-  g.gain.linearRampToValueAtTime(.22*vel,t+.008);
-  g.gain.exponentialRampToValueAtTime(.07*vel,t+.25);
-  g.gain.exponentialRampToValueAtTime(.0001,t+Math.max(.3,dur)+.5);
+  const a=actx;if(!a) return null;
+  const t=a.currentTime,f=440*Math.pow(2,(midi-69)/12),peak=.22*vel;
+  const g=a.createGain(),gg=g.gain;
+  gg.setValueAtTime(0.0001,t);
+  gg.linearRampToValueAtTime(peak,t+.006);
+  gg.setTargetAtTime(peak*.5,t+.01,.15);          // chute après l'attaque
+  const sustainFrom=t+.35;
+  const held=dur===null;
+  if(held||dur>.35) gg.setTargetAtTime(peak*.25,sustainFrom,2);   // décroissance lente, la note reste audible
   const lp=a.createBiquadFilter();lp.type='lowpass';lp.frequency.value=Math.min(12000,f*6);
   const o1=a.createOscillator();o1.type='triangle';o1.frequency.value=f;
   const o2=a.createOscillator();o2.type='sine';o2.frequency.value=f*2;
   const g2=a.createGain();g2.gain.value=.25;
   o1.connect(lp);o2.connect(g2).connect(lp);lp.connect(g).connect(a.destination);
-  const end=t+Math.max(.3,dur)+.6;o1.start(t);o2.start(t);o1.stop(end);o2.stop(end);
+  o1.start(t);o2.start(t);
+  let done=false;
+  const release=at=>{
+    if(done) return;done=true;
+    at=Math.max(at,a.currentTime);
+    gg.cancelScheduledValues(at+1e-4);
+    gg.setTargetAtTime(0.0001,at,.04);             // relâchement : silence en ~0,2 s
+    o1.stop(at+.3);o2.stop(at+.3);
+  };
+  if(!held) release(t+Math.max(.06,dur));
+  else setTimeout(()=>release(a.currentTime),20000); // sécurité : jamais de note bloquée
+  return {release:()=>release(a.currentTime)};
 }
 function click(accent){
   const a=actx;if(!a) return;const t=a.currentTime;
