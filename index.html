@@ -1387,6 +1387,9 @@ function deleteImports(list){
   toast(list.length===1?`« ${list[0].title} » supprimée.`:`${list.length} partitions supprimées.`);
 }
 $('songSel').onchange=e=>{SONG=SONGS.find(s=>s.id===e.target.value);store.set('song',SONG.id);S.from=1;S.to=9999;layoutKey='';refreshUI();resetRun();e.target.blur();};
+// Sur iPad/iPhone, le sélecteur de fichiers grise les formats qu'iOS ne connaît pas (.mxl, .musicxml, .mid…) :
+// on y laisse donc choisir n'importe quel fichier, l'app vérifie elle-même le format.
+if(/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1)) $('fileIn').removeAttribute('accept');
 $('fileIn').onchange=async e=>{
   const f=e.target.files[0];e.target.value='';if(!f) return;
   const title=f.name.replace(/\.[^.]+$/,'');
@@ -1397,6 +1400,7 @@ $('fileIn').onchange=async e=>{
       const buf=await f.arrayBuffer();
       song=parseMIDI(buf,title);saved={id:song.id,title,type:'midi',b64:bufToB64(buf)};
     }else{
+      if(!/\.(mxl|musicxml|xml)$/i.test(f.name)) throw new Error('format non reconnu (formats acceptés : MusicXML .mxl/.musicxml, MIDI .mid, PDF ou photo)');
       const xml=await readScoreFile(f);
       song=parseMusicXML(xml,title);saved={id:song.id,title:song.title,xml};
     }

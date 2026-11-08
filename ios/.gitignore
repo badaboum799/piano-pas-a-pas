@@ -2,3 +2,4 @@ build/
 DerivedData/
 xcuserdata/
 *.xcuserstate
+project.xcworkspace/xcuserdata/
