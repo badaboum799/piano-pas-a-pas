@@ -235,6 +235,10 @@ function finalizeSong(s){
   if(!s.length) s.length=Math.max(...s.notes.map(n=>n.start+n.dur));
   if(!s.measureStarts.length){for(let b=0;b<s.length-1e-6;b+=s.beatsPerMeasure) s.measureStarts.push(b);}
   s.notes.forEach(n=>n.measure=measureIndex(s,n.start));
+  // dans chaque accord : la note du dessus (mélodie) à droite, la basse à gauche ressortent un peu
+  const byOnset=new Map();
+  for(const n of s.notes){const k=n.hand+'|'+n.start.toFixed(3);if(!byOnset.has(k)) byOnset.set(k,[]);byOnset.get(k).push(n);}
+  for(const g of byOnset.values()){if(g.length<2) continue;const lead=g.reduce((a,b)=>(g[0].hand==='R'?b.midi>a.midi:b.midi<a.midi)?b:a);g.forEach(n=>n.inner=n!==lead);}
   let lo=Math.min(...s.notes.map(n=>n.midi)),hi=Math.max(...s.notes.map(n=>n.midi));
   lo-=((lo%12)+12)%12; hi+=11-(hi%12);
   if(hi-lo<23) hi=lo+23;
@@ -271,6 +275,9 @@ const SONG_DEFS=[
 
 /* ================= Import MusicXML ================= */
 function q(el,sel){const e=el.querySelector(sel);return e?e.textContent.trim():'';}
+// Nuances écrites -> force de frappe (0 à 1, comme la vélocité MIDI / 127)
+const DYN={pppp:.13,ppp:.18,pp:.28,p:.4,mp:.52,mf:.63,f:.76,ff:.88,fff:.96,ffff:1};
+const DYN_ACCENT={sf:.2,sfz:.22,sffz:.28,fz:.2,rf:.15,rfz:.18,fp:.15,sfp:.18};
 function parseMusicXML(text,fallbackTitle){
   const doc=new DOMParser().parseFromString(text,'application/xml');
   if(doc.querySelector('parsererror')) throw new Error('Fichier XML illisible');
@@ -282,7 +289,10 @@ function parseMusicXML(text,fallbackTitle){
   const parts=[...root.children].filter(e=>e.tagName==='part');
   let bpm=null,beats=4,beatType=4;const measureStarts=[],notes=[];
   const unitQ={whole:4,half:2,quarter:1,eighth:.5,'16th':.25};
+  const dynEv={},wedges=[],accents=[]; // nuances, soufflets (cresc./dim.) et sforzandos, par portée
+  const addDyn=(sk,t,v)=>{(dynEv[sk]=dynEv[sk]||[]).push({t,v});};
   parts.forEach((part,pi)=>{
+    const openWedge={};
     const multi=[...part.querySelectorAll('note > staff')].some(s=>s.textContent.trim()!=='1');
     let div=1,time=0,lastStart=0;const lastBy={};
     [...part.children].filter(e=>e.tagName==='measure').forEach((meas,mi)=>{
@@ -295,6 +305,19 @@ function parseMusicXML(text,fallbackTitle){
           const b=q(el,'time > beats'),bt=q(el,'time > beat-type');
           if(b&&bt&&pi===0&&mi===0){beats=parseFloat(b);beatType=parseFloat(bt);}
         }else if(tag==='direction'||tag==='sound'){
+          if(tag==='direction'){
+            const t=time+parseFloat(q(el,':scope > offset')||0)/div;
+            const st=q(el,':scope > staff'),sks=st?[pi+'|'+st]:[pi+'|1',pi+'|2',pi+'|3'];
+            const dynEl=el.querySelector('direction-type > dynamics > *'),snd=el.querySelector('sound[dynamics]');
+            const mark=dynEl?dynEl.tagName:null;
+            if(mark&&DYN_ACCENT[mark]!==undefined) sks.forEach(sk=>accents.push({sk,t,v:DYN_ACCENT[mark]}));
+            else if(snd) sks.forEach(sk=>addDyn(sk,t,Math.min(1,parseFloat(snd.getAttribute('dynamics'))*.9/127)));
+            else if(mark&&DYN[mark]!==undefined) sks.forEach(sk=>addDyn(sk,t,DYN[mark]));
+            const w=el.querySelector('direction-type > wedge');
+            if(w){const ty=w.getAttribute('type');
+              if(ty==='crescendo'||ty==='diminuendo') sks.forEach(sk=>openWedge[sk]={sk,from:t,type:ty});
+              else if(ty==='stop') sks.forEach(sk=>{if(openWedge[sk]){wedges.push({...openWedge[sk],to:t});delete openWedge[sk];}});}
+          }
           const s=tag==='sound'?el:el.querySelector('sound[tempo]');
           if(bpm===null&&s&&s.getAttribute('tempo')) bpm=parseFloat(s.getAttribute('tempo'));
           if(bpm===null&&q(el,'metronome > per-minute')){
@@ -317,14 +340,46 @@ function parseMusicXML(text,fallbackTitle){
           const ties=[...el.querySelectorAll(':scope > tie')].map(t=>t.getAttribute('type'));
           const key=midi+hand,prev=lastBy[key];
           if(ties.includes('stop')&&prev&&Math.abs(prev.start+prev.dur-start)<0.02){prev.dur+=dur;continue;}
-          const n={midi,start,dur:Math.max(dur,0.05),hand};notes.push(n);lastBy[key]=n;
+          const n={midi,start,dur:Math.max(dur,0.05),hand,_sk:pi+'|'+staff};
+          // articulations : accent = plus fort, staccato = plus court
+          const art=el.querySelector(':scope > notations > articulations');
+          if(art){
+            if(art.querySelector('strong-accent')) n._acc=.18;else if(art.querySelector('accent')) n._acc=.12;
+            if(art.querySelector('staccatissimo')) n.dur*=.3;else if(art.querySelector('staccato')) n.dur*=.5;
+          }
+          if(el.getAttribute('dynamics')) n.vel=Math.min(1,parseFloat(el.getAttribute('dynamics'))*.9/127);
+          notes.push(n);lastBy[key]=n;
         }
       }
       time=Math.max(time,maxT);
     });
   });
+  applyDynamics(notes,dynEv,wedges,accents);
   return finalizeSong({id:'imp-'+Date.now(),title,composer,bpm:Math.min(240,Math.max(30,bpm||90)),
     beatsPerMeasure:beats*4/beatType,measureStarts,notes,imported:true});
+}
+// Donne à chaque note sa nuance : dernière nuance écrite avant elle, interpolée pendant un crescendo /
+// diminuendo (jusqu'à la nuance suivante, ou ± un cran s'il n'y en a pas), plus les accents.
+function applyDynamics(notes,dynEv,wedges,accents){
+  for(const k in dynEv) dynEv[k].sort((a,b)=>a.t-b.t);
+  const at=(sk,t)=>{let v=.63;for(const e of (dynEv[sk]||[])){if(e.t<=t+1e-6) v=e.v;else break;}return v;};
+  const next=(sk,t)=>(dynEv[sk]||[]).find(e=>e.t>=t-1e-6);
+  for(const w of wedges){ // fin du soufflet : on fixe la nuance atteinte
+    const v0=at(w.sk,w.from),nx=next(w.sk,w.to);
+    w.v0=v0;w.v1=nx&&nx.t-w.to<4.01?nx.v:Math.max(.13,Math.min(1,v0+(w.type==='crescendo'?.15:-.15)));
+    if(!nx||nx.t-w.to>1e-3) (dynEv[w.sk]=dynEv[w.sk]||[]).push({t:w.to,v:w.v1});
+  }
+  for(const k in dynEv) dynEv[k].sort((a,b)=>a.t-b.t);
+  for(const n of notes){
+    if(n.vel===undefined){
+      n.vel=at(n._sk,n.start);
+      const w=wedges.find(w=>w.sk===n._sk&&n.start>=w.from-1e-6&&n.start<w.to-1e-6);
+      if(w&&w.to>w.from) n.vel=w.v0+(w.v1-w.v0)*(n.start-w.from)/(w.to-w.from);
+    }
+    const ac=accents.find(a=>a.sk===n._sk&&Math.abs(a.t-n.start)<1e-3);
+    n.vel=Math.min(1,n.vel+(n._acc||0)+(ac?ac.v:0));
+    delete n._sk;delete n._acc;
+  }
 }
 async function readScoreFile(file){
   if(/\.mxl$/i.test(file.name)){
@@ -366,12 +421,12 @@ function parseMIDI(buf,title){
       }else if(status===0xf0||status===0xf7){q+=vlq();status=0;}
       else if(type===0x90||type===0x80){
         const n=d.getUint8(q++),v=d.getUint8(q++),k=ch+'|'+n;
-        if(type===0x90&&v>0){(open[k]=open[k]||[]).push(tick);}
+        if(type===0x90&&v>0){(open[k]=open[k]||[]).push([tick,v]);}
         else{
-          const st=open[k]&&open[k].shift();
+          const on=open[k]&&open[k].shift(),st=on?on[0]:undefined;
           if(st!==undefined&&ch!==9){ // canal 10 = percussions, ignoré
             const key=tr+'|'+ch;if(!groups.has(key)) groups.set(key,[]);
-            groups.get(key).push({midi:n,start:st/division,dur:Math.max(1/32,(tick-st)/division)});
+            groups.get(key).push({midi:n,start:st/division,dur:Math.max(1/32,(tick-st)/division),vel:on[1]/127});
           }
         }
       }else if(type===0xc0||type===0xd0) q+=1;
@@ -518,9 +573,10 @@ Rules:
 - Write SOUNDING pitches: apply the key signature, accidentals (valid until the end of the measure) and octave lines (8va / 8vb).
 - Look carefully at augmentation dots, beams and flags: they change durations.
 - Each voice must add up exactly to the measure length (3 for 3/4, 3 for 6/8, 4 for 4/4…), except a pickup measure. When a staff has independent rhythms (e.g. a held note under moving eighths), use several voices; fill gaps with rests.
-- Ignore dynamics, fingerings, pedal marks, lyrics, chord symbols and grace notes.
+- Dynamics: when a dynamic marking (pp, p, mp, mf, f, ff…) appears in a measure, add "dyn": "p" (etc.) to that measure; when a crescendo or diminuendo hairpin starts in a measure, add "hairpin": "cresc" or "dim". Omit these keys otherwise.
+- Ignore fingerings, pedal marks, lyrics, chord symbols and grace notes.
 - If the page contains no music, return {"measures": []}.
-Example measure in 3/4: {"rh": ["D5:2~ D5:0.5 C5:0.5"], "lh": ["F3+A3+D4:3"]}`;
+Example measure in 3/4: {"dyn":"mp","rh":["D5:2~ D5:0.5 C5:0.5"],"lh":["F3+A3+D4:3"]}`;
 }
 async function aiReadPage(img,page,total,ctx,signal){
   const key=store.get('orKey',''),model=store.get('orModel',AI_MODELS[0][0]);
@@ -561,8 +617,8 @@ function parseAiVoice(v){
 }
 // Assemble toutes les mesures en un morceau ; renvoie aussi la liste des mesures corrigées
 function buildAiSong(data,title){
-  const notes=[],measureStarts=[],fixed=[],ties={};
-  let t=0,time=Array.isArray(data.time)?data.time:[4,4];
+  const notes=[],measureStarts=[],fixed=[],ties={},dynEv={'a':[]},wedges=[];
+  let t=0,time=Array.isArray(data.time)?data.time:[4,4],openW=null;
   (data.measures||[]).forEach((m,mi)=>{
     if(Array.isArray(m.time)&&m.time.length===2&&m.time[0]>0&&m.time[1]>0) time=m.time;
     const full=time[0]*4/time[1];
@@ -571,6 +627,8 @@ function buildAiSong(data,title){
     let len=full;
     if(m.pickup){len=0;for(const [,vs] of parsed) for(const ev of vs) len=Math.max(len,ev.reduce((s,e)=>s+e.dur,0));if(!len) len=full;}
     measureStarts.push(t);
+    if(typeof m.dyn==='string'&&DYN[m.dyn]!==undefined){dynEv.a.push({t,v:DYN[m.dyn]});if(openW){wedges.push({...openW,to:t});openW=null;}}
+    if(m.hairpin==='cresc'||m.hairpin==='dim'){if(openW) wedges.push({...openW,to:t});openW={sk:'a',from:t,type:m.hairpin==='cresc'?'crescendo':'diminuendo'};}
     let wasFixed=false;
     for(const [hand,vs] of parsed) for(const ev of vs){
       if(!ev.length) continue;
@@ -586,7 +644,7 @@ function buildAiSong(data,title){
         for(const p of e.pitches){
           const k=hand+p,prev=ties[k];
           if(prev&&Math.abs(prev.start+prev.dur-x)<1e-3){prev.dur+=e.dur;if(!e.tie) delete ties[k];continue;} // note liée : on prolonge
-          const n={midi:p,start:x,dur:e.dur,hand};notes.push(n);
+          const n={midi:p,start:x,dur:e.dur,hand,_sk:'a'};notes.push(n);
           if(e.tie) ties[k]=n;else delete ties[k];
         }
         x+=e.dur;
@@ -595,7 +653,8 @@ function buildAiSong(data,title){
     if(wasFixed) fixed.push(mi+1);
     t+=len;
   });
-  const first=(data.measures||[]).find(m=>!m.pickup);
+  if(openW) wedges.push({...openW,to:Math.min(t,openW.from+2*time[0]*4/time[1])});
+  applyDynamics(notes,dynEv,wedges,[]);
   const song=finalizeSong({id:'imp-'+Date.now(),title,composer:data.composer||'',bpm:Math.min(240,Math.max(30,Math.round(data.tempo||90))),
     beatsPerMeasure:time[0]*4/time[1],measureStarts,notes,length:t,imported:true});
   return {song,fixed};
@@ -748,6 +807,21 @@ function updatePlayBtn(){document.getElementById('playBtn').textContent=R&&R.pla
 
 function addErr(m){R.perMeasure[m]=(R.perMeasure[m]||0)+1;}
 
+/* ================= Interprétation : force de chaque note jouée par l'app =================
+   Part de la nuance écrite, puis comme un pianiste : la main gauche accompagne un peu en dessous,
+   les notes intérieures des accords sont plus douces, le premier temps est marqué, les contretemps
+   allégés, avec une petite variation naturelle. */
+function perfVel(n){
+  let v=n.vel??.63;
+  if(n.hand==='L') v*=.82;
+  if(n.inner) v*=.86;
+  const ms=SONG.measureStarts[n.measure]??0,off=n.start-ms;
+  if(Math.abs(off)<1e-3) v*=1.08;
+  else if(Math.abs(off-Math.round(off))>1e-3) v*=.94;
+  v*=1+(Math.random()-.5)*.08;
+  return Math.max(.05,Math.min(1,v));
+}
+
 /* ================= Boucle de jeu ================= */
 function update(dt){
   if(!R||!R.playing) return;
@@ -759,10 +833,10 @@ function update(dt){
   while(R.nextClick<R.startBeat-1e-6&&np>=R.nextClick-1e-6){click(R.nextClick===R.startBeat-R.countIn);R.nextClick++;}
   // accompagnement : l'app joue l'autre main
   const listen=S.mode==='listen';
-  while(R.ai<R.acc.length&&R.acc[R.ai].start<=np+1e-6){const n=R.acc[R.ai++];if(S.accomp||listen) playTone(n.midi,n.dur*spb,.45);}
+  while(R.ai<R.acc.length&&R.acc[R.ai].start<=np+1e-6){const n=R.acc[R.ai++];if(S.accomp||listen) playTone(n.midi,n.dur*spb,perfVel(n)*(listen?1:.85));}
   // mode Écoute : l'app joue aussi les notes de l'élève, sans attendre
   R.pi=R.pi||0;
-  while(R.pi<R.play.length&&R.play[R.pi].start<=np+1e-6){const n=R.play[R.pi++];if(listen) playTone(n.midi,n.dur*spb,.6);}
+  while(R.pi<R.play.length&&R.play[R.pi].start<=np+1e-6){const n=R.play[R.pi++];if(listen) playTone(n.midi,n.dur*spb,perfVel(n));}
   // notes manquées : seulement en mode Tempo (en Écoute, jouer par-dessus est un bonus, rien n'est « raté »)
   if(S.mode!=='wait'){
     const tolB=TOL/spb;
@@ -878,7 +952,7 @@ function audio(){
     if(AC){
       actx=new AC();
       // bus général : un compresseur évite la saturation quand plusieurs notes sonnent ensemble
-      const comp=actx.createDynamicsCompressor();comp.threshold.value=-14;comp.ratio.value=4;
+      const comp=actx.createDynamicsCompressor();comp.threshold.value=-8;comp.knee.value=12;comp.ratio.value=3;comp.attack.value=.005;comp.release.value=.2; // ne retient que les pointes, pour garder les nuances
       master=actx.createGain();master.gain.value=.75;master.connect(comp).connect(actx.destination);
       decodeSamples();
     }
@@ -910,10 +984,12 @@ function samplerTone(midi,dur,vel){
   const a=actx;let best=null,bd=99;
   for(const k in sampleBufs){const d=Math.abs(k-midi);if(d<bd){bd=d;best=+k;}}
   if(best===null||bd>2) return null;
-  const t=a.currentTime,lvl=.3+.7*vel;
+  // volume : courbe proche d'un vrai piano (pp ≈ -20 dB sous ff) ; un piano frappé doucement sonne aussi plus feutré
+  const t=a.currentTime,lvl=.04+.96*Math.pow(vel,1.7);
   const src=a.createBufferSource();src.buffer=sampleBufs[best];src.playbackRate.value=Math.pow(2,(midi-best)/12);
   const g=a.createGain();g.gain.setValueAtTime(lvl,t);
-  src.connect(g).connect(master);src.start(t);
+  const tone=a.createBiquadFilter();tone.type='lowpass';tone.Q.value=.5;tone.frequency.value=900+15000*vel*vel;
+  src.connect(tone).connect(g).connect(master);src.start(t);
   let done=false;
   const release=at=>{ // relâcher la touche : l'étouffoir coupe la corde en ~0,3 s
     if(done) return;done=true;at=Math.max(at,a.currentTime);
