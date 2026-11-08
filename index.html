@@ -423,18 +423,45 @@ function loadPdfJs(){
   });
   return pdfjsReady;
 }
-function canvasToJpeg(draw,w,h){
-  const c=document.createElement('canvas');c.width=Math.round(w);c.height=Math.round(h);
-  const g=c.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,c.width,c.height);
-  return Promise.resolve(draw(g,c)).then(()=>c.toDataURL('image/jpeg',.88));
+// Repère les lignes de la partition (une ligne = portée main droite + portée main gauche) en cherchant
+// les lignes horizontales qui traversent presque toute la page, groupées par 5 (une portée).
+// Renvoie les bandes [haut, bas] à découper, ou null si la page ne ressemble pas à une partition de piano.
+function findSystems(c){
+  const W=c.width,H=c.height,d=c.getContext('2d').getImageData(0,0,W,H).data,rows=new Float32Array(H);
+  for(let y=0;y<H;y++){let dark=0,n=0;for(let x=0;x<W;x+=2,n++){const i=(y*W+x)*4;if(d[i]+d[i+1]+d[i+2]<450) dark++;}rows[y]=dark/n;}
+  const lines=[];
+  for(let y=0;y<H;y++) if(rows[y]>.35){let y2=y;while(y2+1<H&&rows[y2+1]>.35) y2++;lines.push((y+y2)/2);y=y2;}
+  const staves=[];
+  for(let i=0;i+4<lines.length;){
+    const g=lines.slice(i,i+5),gaps=g.slice(1).map((v,k)=>v-g[k]),avg=(g[4]-g[0])/4;
+    if(avg>3&&gaps.every(x=>Math.abs(x-avg)<avg*.35)){staves.push({top:g[0],bottom:g[4],sp:avg});i+=5;}else i++;
+  }
+  if(staves.length<2||staves.length%2) return null;
+  const sys=[];for(let k=0;k<staves.length;k+=2) sys.push({top:staves[k].top,bottom:staves[k+1].bottom,sp:(staves[k].sp+staves[k+1].sp)/2});
+  return sys.map((s,k)=>{
+    const prev=sys[k-1],next=sys[k+1];
+    const top=prev?(prev.bottom+s.top)/2:s.top-6*s.sp,bot=next?(s.bottom+next.top)/2:s.bottom+6*s.sp;
+    return [Math.max(0,Math.floor(top)),Math.min(H,Math.ceil(bot))];
+  });
+}
+function toJpeg(c,q=.88){return c.toDataURL('image/jpeg',q);}
+function scaledCopy(src,w,y0=0,y1=src.height){
+  const h=Math.round((y1-y0)*w/src.width),c=document.createElement('canvas');c.width=w;c.height=h;
+  const g=c.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,w,h);g.drawImage(src,0,y0,src.width,y1-y0,0,0,w,h);return c;
+}
+// Une page -> une vue d'ensemble légère + chaque ligne de la partition agrandie (bien plus lisible pour l'IA)
+function pageImages(c){
+  const crops=findSystems(c);
+  return {overview:toJpeg(scaledCopy(c,crops?640:1600),crops?.8:.88),systems:crops?crops.map(([y0,y1])=>toJpeg(scaledCopy(c,1600,y0,y1))):[]};
 }
 async function fileToPageImages(file){
   if(/^image\//.test(file.type)||/\.(png|jpe?g|webp|heic)$/i.test(file.name)){ // photo d'une partition
     const url=URL.createObjectURL(file);
     try{
       const img=await new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=()=>rej(new Error('image illisible'));i.src=url;});
-      const sc=Math.min(1,2000/Math.max(img.width,img.height));
-      return [await canvasToJpeg(g=>g.drawImage(img,0,0,img.width*sc,img.height*sc),img.width*sc,img.height*sc)];
+      const c=document.createElement('canvas');c.width=img.width;c.height=img.height;
+      const g=c.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,c.width,c.height);g.drawImage(img,0,0);
+      return [pageImages(c)];
     }finally{URL.revokeObjectURL(url);}
   }
   const lib=await loadPdfJs();
@@ -442,13 +469,17 @@ async function fileToPageImages(file){
   if(pdf.numPages>AI_MAX_PAGES) throw new Error(`PDF trop long (${pdf.numPages} pages, ${AI_MAX_PAGES} au maximum)`);
   const out=[];
   for(let i=1;i<=pdf.numPages;i++){
-    const page=await pdf.getPage(i),vp=page.getViewport({scale:1600/page.getViewport({scale:1}).width});
-    out.push(await canvasToJpeg(g=>page.render({canvasContext:g,viewport:vp}).promise,vp.width,vp.height));
+    const page=await pdf.getPage(i),vp=page.getViewport({scale:2400/page.getViewport({scale:1}).width});
+    const c=document.createElement('canvas');c.width=Math.round(vp.width);c.height=Math.round(vp.height);
+    const g=c.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,c.width,c.height);
+    await page.render({canvasContext:g,viewport:vp}).promise;
+    out.push(pageImages(c));
   }
   return out;
 }
-function aiPrompt(page,total,ctx){
-  return `You are an expert music engraver. Transcribe the piano sheet music in this image (page ${page} of ${total}) into JSON.
+function aiPrompt(page,total,ctx,nSys){
+  return `You are an expert music engraver. Transcribe the piano sheet music of page ${page} of ${total} into JSON.
+${nSys?`The first image is the whole page at low resolution, only for the overview (title, tempo, clefs, time and key signatures). The next ${nSys} images are the ${nSys} systems of the page (treble + bass staff), top to bottom, zoomed in: read the notes from these zoomed images, system by system, measure by measure.`:'The image is the whole page.'}
 ${ctx.measures?`Context from the previous pages: ${ctx.measures} measures already transcribed; time signature in force: ${ctx.time[0]}/${ctx.time[1]}; key signature in force: ${ctx.key} (number of sharps, negative for flats). Continue from there.`:'This is the first page.'}
 
 Output ONLY a JSON object (no markdown, no comments):
@@ -472,7 +503,8 @@ async function aiReadPage(img,page,total,ctx,signal){
   const r=await fetch('https://openrouter.ai/api/v1/chat/completions',{method:'POST',signal,
     headers:{'Authorization':'Bearer '+key,'Content-Type':'application/json','X-Title':'Piano Pas a Pas'},
     body:JSON.stringify({model,temperature:0,max_tokens:16000,
-      messages:[{role:'user',content:[{type:'text',text:aiPrompt(page,total,ctx)},{type:'image_url',image_url:{url:img}}]}]})});
+      messages:[{role:'user',content:[{type:'text',text:aiPrompt(page,total,ctx,img.systems.length)},
+        ...[img.overview,...img.systems].map(url=>({type:'image_url',image_url:{url}}))]}]})});
   if(!r.ok){
     let msg='';try{msg=(await r.json()).error?.message||'';}catch(e){}
     if(r.status===401) throw new Error('clé OpenRouter refusée : vérifie-la dans les réglages');
