@@ -33,6 +33,10 @@ select{max-width:240px}
 .seg{display:inline-flex;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:2px}
 .seg button{font:inherit;font-size:13px;color:var(--muted);background:transparent;border:0;border-radius:8px;padding:7px 11px;cursor:pointer;white-space:nowrap}
 .seg button.active{background:var(--accent);color:#0b0e1c;font-weight:700}
+/* chaque mode a sa couleur, reprise dans le badge affiché sur le clavier */
+.seg[data-key=mode] button[data-v=wait].active{background:#7c8cff}
+.seg[data-key=mode] button[data-v=tempo].active{background:#ffb454}
+.seg[data-key=mode] button[data-v=listen].active{background:#3ddc97}
 .bar.ctrl{background:#13172a;gap:8px 22px;padding-top:4px}
 .ctl{display:flex;align-items:center;gap:8px}
 .ctl .lbl{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
@@ -131,7 +135,7 @@ kbd{background:var(--panel2);border:1px solid var(--line);border-radius:4px;padd
     </div>
     <div class="ctl o6"><span class="lbl">Mode</span>
       <div class="seg" data-key="mode">
-        <button data-v="wait">Attente</button><button data-v="tempo">Tempo</button><button data-v="listen">Écoute</button>
+        <button data-v="wait">✋ Attente</button><button data-v="tempo">⏱ Tempo</button><button data-v="listen">🎧 Écoute</button>
       </div>
     </div>
     <div class="ctl speedctl o6"><span class="lbl">Vitesse</span>
@@ -472,12 +476,12 @@ function update(dt){
   // mode Écoute : l'app joue aussi les notes de l'élève, sans attendre
   R.pi=R.pi||0;
   while(R.pi<R.play.length&&R.play[R.pi].start<=np+1e-6){const n=R.play[R.pi++];if(listen) playTone(n.midi,n.dur*spb,.6);}
-  // notes manquées en mode Tempo
+  // notes manquées : seulement en mode Tempo (en Écoute, jouer par-dessus est un bonus, rien n'est « raté »)
   if(S.mode!=='wait'){
     const tolB=TOL/spb;
     while(R.mi<R.play.length&&R.play[R.mi].start<np-tolB){
       const n=R.play[R.mi++];
-      if(!n.hit){n.missed=true;R.misses++;R.combo=0;addErr(n.measure);}
+      if(!n.hit&&S.mode==='tempo'){n.missed=true;R.misses++;R.combo=0;addErr(n.measure);}
     }
   }
   R.pos=np;
@@ -522,8 +526,20 @@ function popup(midi,text,color){popups.push({midi,text,color,t:performance.now()
 /* ================= Fin de partie & adaptation du niveau ================= */
 function finish(){
   R.playing=false;R.finished=true;updatePlayBtn();
-  // écoute seule (l'élève n'a rien joué) : pas de note, juste la fin du morceau
-  if(S.mode==='listen'&&R.hits===0&&R.wrong===0){toast('Fin du morceau 🎶 Rejoue-le en jouant par-dessus pour être noté.');return;}
+  // Mode Écoute : pas de note sur 100, on encourage et on propose l'étape suivante (jouer soi-même)
+  if(S.mode==='listen'){
+    const played=R.hits>0;
+    const card=document.getElementById('resCard');
+    card.innerHTML=`<h2>${played?'Bravo, tu as joué avec la musique !':'Morceau écouté 🎧'}</h2>
+      ${played?`<div class="big">${R.hits}</div><p>note${R.hits>1?'s':''} juste${R.hits>1?'s':''} jouée${R.hits>1?'s':''} en même temps que l'app${R.wrong?` · ${R.wrong} fausse${R.wrong>1?'s':''} note${R.wrong>1?'s':''}`:''}</p>`
+        :`<p>Tu as entendu le morceau et vu les touches s'allumer.</p>`}
+      <div class="tip">Étape suivante : à toi de jouer ! En mode ✋ Attente, la musique t'attend à chaque note.</div><div class="actions"></div>`;
+    showActions(card,[
+      {label:'✋ À moi de jouer (mode Attente)',fn:()=>{setMode('wait');}},
+      {label:'🎧 Réécouter',fn:()=>{}},
+    ]);
+    return;
+  }
   const total=R.play.length;
   const acc=total?Math.round(100*R.hits/(total+R.wrong)):0;
   const bestKey=`${SONG.id}|${S.hands}-${S.simp}-${S.mode}`;
@@ -556,6 +572,9 @@ function finish(){
     ${R.full?`<p>Record pour ce réglage : ${Math.max(acc,prevBest??0)} %${prevBest!==undefined&&acc>prevBest?' (nouveau record !)':''}</p>`:`<p>Mesures ${R.from}–${R.to}</p>`}
     ${worst.length?`<p>Mesures à retravailler : ${worst.join(', ')}</p>`:''}
     <div class="tip">${msg}</div><div class="actions"></div>`;
+  showActions(card,sugg);
+}
+function showActions(card,sugg){
   const box=card.querySelector('.actions');
   sugg.forEach((s,i)=>{const b=document.createElement('button');b.className='btn'+(i===0?' primary':'');b.textContent=s.label;
     b.onclick=()=>{s.fn();S.level=matchLevel();saveSettings();refreshUI();resetRun();startPlay();};box.appendChild(b);});
@@ -655,10 +674,11 @@ window.addEventListener('resize',resize);
 function kbRange(){
   if(W>=700||!R||!R.play.length) return [SONG.lo,SONG.hi];
   if(!R.kb){
-    let lo=Math.min(...R.play.map(n=>n.midi)),hi=Math.max(...R.play.map(n=>n.midi));
+    const src=S.mode==='listen'?R.notes:R.play; // en Écoute, on montre aussi les touches de l'autre main
+    let lo=Math.min(...src.map(n=>n.midi)),hi=Math.max(...src.map(n=>n.midi));
     lo-=((lo%12)+12)%12;hi+=11-(hi%12);
     // une note pile sur un Do aigu ne mérite pas une octave entière : on s'arrête à ce Do
-    if(R.play.filter(n=>n.midi>hi-12).every(n=>n.midi===hi-11)&&hi-lo>=23) hi-=11;
+    if(src.filter(n=>n.midi>hi-12).every(n=>n.midi===hi-11)&&hi-lo>=23) hi-=11;
     R.kb=[lo,hi];
   }
   return R.kb;
@@ -717,9 +737,9 @@ function draw(){
     const k=L.map[n.midi];if(!k) continue;
     const x=k.x+1.5,w=k.w-3,h=Math.max(4,n.dur*ppb-3);
     let col=HAND[n.hand];
-    ctx.globalAlpha=n.play?1:.25;
+    ctx.globalAlpha=n.play?1:(S.mode==='listen'?.6:.25);
     if(n.hit) col='#3ddc97';else if(n.missed) col='#59607f';
-    const active=n.play&&pos>=n.start-1e-3&&pos<n.start+n.dur;
+    const active=(n.play||S.mode==='listen')&&pos>=n.start-1e-3&&pos<n.start+n.dur;
     if(active&&!n.missed){ctx.shadowColor=col;ctx.shadowBlur=16;}
     ctx.fillStyle=col;rr(x,yB-h,w,h,Math.min(7,w/3));ctx.fill();ctx.shadowBlur=0;
     if(n.play&&!n.hit&&!n.missed){ctx.strokeStyle='rgba(255,255,255,.35)';ctx.lineWidth=1;ctx.stroke();}
@@ -736,7 +756,8 @@ function draw(){
   // touches à jouer maintenant
   const target={};
   if(S.mode==='wait'&&R.groups[R.gi]&&R.pos>=R.groups[R.gi].start-0.05) R.groups[R.gi].notes.forEach(n=>{if(!n.hit) target[n.midi]=n.hand;});
-  for(const n of R.play){if(n.start>pos+.02) break;if(pos<n.start+n.dur&&!n.missed&&target[n.midi]===undefined&&S.mode!=='wait') target[n.midi]=n.hand;}
+  // en Écoute, toutes les touches jouées par l'app s'allument (les deux mains)
+  for(const n of (S.mode==='listen'?R.notes:R.play)){if(n.start>pos+.02) break;if(pos<n.start+n.dur&&!n.missed&&target[n.midi]===undefined&&S.mode!=='wait') target[n.midi]=n.hand;}
   const fx=m=>{const f=keyFx[m];if(!f) return null;const a=1-(now-f.t)/350;if(a<=0){delete keyFx[m];return null;}return {c:f.c,a};};
   // touches blanches
   for(const m of L.whites){
@@ -775,17 +796,36 @@ function draw(){
     const g=R.groups[R.gi];
     if(g){const left=g.notes.filter(n=>!n.hit);
       ctx.font='600 16px -apple-system,sans-serif';ctx.fillStyle=HAND[left[0]?.hand||'R'];
-      ctx.fillText('À toi : '+left.map(n=>fmtName(n.midi)).join(' + '),W/2,30);}
+      ctx.fillText('À toi : '+left.map(n=>fmtName(n.midi)).join(' + '),W/2,58);}
   }else if(!R.playing&&!R.finished&&pos<=R.startBeat-R.countIn+1e-3){
-    const fs=Math.max(12,Math.min(15,W/30)),maxW=W-32;
-    let y=Math.max(30,hitY*.3);
-    ctx.fillStyle='rgba(232,234,246,.9)';ctx.font=`700 ${Math.round(fs*1.45)}px -apple-system,sans-serif`;
-    y=wrapText(SONG.title,W/2,y,maxW,fs*1.9)+4;
+    const fs=Math.max(12,Math.min(15,W/30)),maxW=W-32,mi=MODE_INFO[S.mode];
+    let y=Math.max(64,hitY*.26);
+    ctx.fillStyle='rgba(232,234,246,.92)';ctx.font=`700 ${Math.round(fs*1.45)}px -apple-system,sans-serif`;
+    y=wrapText(SONG.title,W/2,y,maxW,fs*1.9)+6;
+    ctx.fillStyle=mi.color;ctx.font=`600 ${fs}px -apple-system,sans-serif`;
+    y=wrapText(`${mi.icon} Mode ${mi.name} : ${mi.desc}`,W/2,y,maxW,fs*1.5)+4;
     ctx.fillStyle='rgba(154,161,199,.95)';ctx.font=`${fs}px -apple-system,sans-serif`;
-    y=wrapText('Appuie sur ▶ Jouer. Les notes tombent : joue-les quand elles touchent le clavier.',W/2,y,maxW,fs*1.5);
-    y=wrapText((S.hands==='R'?'Main droite (bleu)':S.hands==='L'?'Main gauche (orange)':'Main droite en bleu, main gauche en orange')+' · '+({wait:'Mode Attente',tempo:'Mode Tempo',listen:'Mode Écoute'}[S.mode])+' · '+Math.round(S.speed*100)+' %',W/2,y,maxW,fs*1.5);
+    const handsTxt=S.hands==='R'?'main droite (bleu)':S.hands==='L'?'main gauche (orange)':'les deux mains (droite en bleu, gauche en orange)';
+    y=wrapText((S.mode==='listen'?'Tu peux jouer par-dessus : ':'Tu joues : ')+handsTxt+' · partition '+['','mélodie','simplifiée','complète'][S.simp]+' · vitesse '+Math.round(S.speed*100)+' %',W/2,y,maxW,fs*1.5);
+    ctx.fillStyle='rgba(232,234,246,.9)';
+    y=wrapText('Appuie sur ▶ Jouer pour commencer.',W/2,y+4,maxW,fs*1.5);
     if(W<600&&H>W*1.2){ctx.fillStyle='#ffd166';wrapText('Astuce : tourne le téléphone pour avoir un clavier plus grand.',W/2,y+8,maxW,fs*1.5);}
   }
+  drawBadge();
+}
+// Badge permanent en haut à gauche : mode, niveau et vitesse, toujours visibles même pendant le jeu
+function drawBadge(){
+  const mi=MODE_INFO[S.mode],lvl=S.level>=0?LEVELS[S.level].name:'Personnalisé';
+  const fs=W<600?12:13;ctx.font=`700 ${fs}px -apple-system,sans-serif`;ctx.textAlign='left';
+  const a=`${mi.icon} ${mi.name}`,b=` · ${lvl} · ${Math.round(S.speed*100)} %`;
+  ctx.font=`700 ${fs}px -apple-system,sans-serif`;const wa=ctx.measureText(a).width;
+  ctx.font=`500 ${fs}px -apple-system,sans-serif`;const wb=ctx.measureText(b).width;
+  const x=10,y=10,h=fs+14,w=wa+wb+20;
+  ctx.fillStyle='rgba(15,18,32,.85)';rr(x,y,w,h,h/2);ctx.fill();
+  ctx.strokeStyle=mi.color;ctx.lineWidth=1.5;ctx.stroke();
+  ctx.fillStyle=mi.color;ctx.font=`700 ${fs}px -apple-system,sans-serif`;ctx.fillText(a,x+10,y+h/2+fs*.35);
+  ctx.fillStyle='rgba(232,234,246,.9)';ctx.font=`500 ${fs}px -apple-system,sans-serif`;ctx.fillText(b,x+10+wa,y+h/2+fs*.35);
+  ctx.textAlign='center';
 }
 
 /* ================= HUD ================= */
@@ -834,16 +874,34 @@ window.addEventListener('keyup',e=>{const off=CODE_MAP[e.code];if(off!==undefine
 /* ================= Interface ================= */
 const $=id=>document.getElementById(id);
 function toast(t,ms=2600){const el=$("toast");el.textContent=t;el.classList.add("show");clearTimeout(toast._t);toast._t=setTimeout(()=>el.classList.remove("show"),ms);}
-function saveSettings(){const {hands,simp,mode,speed,names,notation,accomp,appSound,level}=S;store.set('settings',{hands,simp,mode,speed,names,notation,accomp,appSound,level});}
-function matchLevel(){return LEVELS.findIndex(l=>l.hands===S.hands&&l.simp===S.simp&&l.mode===S.mode&&Math.abs(l.speed-S.speed)<.001);}
-function applyLevel(i){const l=LEVELS[i];Object.assign(S,{hands:l.hands,simp:l.simp,mode:l.mode,speed:l.speed,level:i});}
+function saveSettings(){const {hands,simp,prevSimp,mode,speed,names,notation,accomp,appSound,level}=S;store.set('settings',{hands,simp,prevSimp,mode,speed,names,notation,accomp,appSound,level});}
+// En mode Écoute, le niveau reste affiché : seuls les mains et la vitesse comptent (la partition est complète).
+function matchLevel(){return LEVELS.findIndex(l=>l.hands===S.hands&&Math.abs(l.speed-S.speed)<.001&&(S.mode==='listen'||(l.simp===S.simp&&l.mode===S.mode)));}
+function applyLevel(i){
+  const l=LEVELS[i];
+  if(S.mode==='listen') Object.assign(S,{hands:l.hands,speed:l.speed,prevSimp:l.simp,level:i}); // on reste en Écoute
+  else Object.assign(S,{hands:l.hands,simp:l.simp,mode:l.mode,speed:l.speed,level:i});
+}
+// Passer en Écoute met la partition complète ; en sortir remet la partition d'avant.
+function setMode(v){
+  if(v==='listen'&&S.mode!=='listen'){S.prevSimp=S.simp;S.simp=3;}
+  else if(v!=='listen'&&S.mode==='listen'&&S.prevSimp) S.simp=S.prevSimp;
+  S.mode=v;
+}
+const MODE_INFO={
+  wait:{icon:'✋',name:'Attente',color:'#7c8cff',desc:"La musique t'attend : elle s'arrête jusqu'à ce que tu joues la bonne note."},
+  tempo:{icon:'⏱',name:'Tempo',color:'#ffb454',desc:'La musique avance toute seule : joue en rythme.'},
+  listen:{icon:'🎧',name:'Écoute',color:'#3ddc97',desc:"L'app joue tout le morceau. Écoute, regarde les touches s'allumer, et joue par-dessus si tu veux."},
+};
 
 document.querySelectorAll('.levels').forEach(box=>LEVELS.forEach((l,i)=>{const b=document.createElement('button');b.textContent=l.name;b.dataset.i=i;
   b.onclick=()=>{applyLevel(i);saveSettings();refreshUI();resetRun();};box.appendChild(b);}));
 
 document.querySelectorAll('.seg[data-key]').forEach(seg=>{
   seg.querySelectorAll('button').forEach(b=>b.onclick=()=>{
-    const key=seg.dataset.key;S[key]=key==='simp'?parseInt(b.dataset.v):b.dataset.v;
+    const key=seg.dataset.key;
+    if(key==='mode') setMode(b.dataset.v);
+    else S[key]=key==='simp'?parseInt(b.dataset.v):b.dataset.v;
     S.level=matchLevel();saveSettings();refreshUI();
     if(key!=='notation') resetRun(); // changer la notation ne relance pas la partie
   });
