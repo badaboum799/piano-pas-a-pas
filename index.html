@@ -1128,6 +1128,8 @@ function rr(x,y,w,h,r){
   r=Math.max(0,Math.min(r,w/2,h/2));ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);
   ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();
 }
+const HAND_HOT={R:'#a9d4ff',L:'#ffc79c'},HAND_SHARP_HOT={R:'#5f9dff',L:'#ff8c3a'};
+const hexA=(h,a)=>`rgba(${parseInt(h.slice(1,3),16)},${parseInt(h.slice(3,5),16)},${parseInt(h.slice(5,7),16)},${a})`;
 const HAND={R:'#5aa9ff',L:'#ff9f5a'},HAND_SHARP={R:'#2c6fcc',L:'#cf6a1c'},HAND_SOFT={R:'#cfe4ff',L:'#ffdcc2'},HAND_DARK={R:'#2f6fb8',L:'#b8692f'};
 function kbHeight(){return Math.min(170,Math.max(90,H*.24));}
 
@@ -1151,6 +1153,17 @@ function draw(){
     ctx.fillStyle='rgba(255,255,255,.08)';ctx.fillRect(0,y,W,1);
     ctx.fillStyle='rgba(255,255,255,.35)';ctx.fillText(String(i+1),6,y-4);
   });
+  // touches à jouer maintenant
+  const target={},pulse=.5+.5*Math.sin(now/110);
+  if(S.mode==='wait'&&R.groups[R.gi]&&R.pos>=R.groups[R.gi].start-0.05) R.groups[R.gi].notes.forEach(n=>{if(!n.hit) target[n.midi]=n.hand;});
+  // en Écoute, toutes les touches jouées par l'app s'allument (les deux mains)
+  for(const n of (S.mode==='listen'?R.notes:R.play)){if(n.start>pos+.02) break;if(pos<n.start+n.dur&&!n.missed&&target[n.midi]===undefined&&S.mode!=='wait') target[n.midi]=n.hand;}
+  // faisceau lumineux au-dessus de chaque touche à jouer
+  for(const m in target){
+    const k=L.map[m];if(!k) continue;const c=HAND[target[m]],bh=Math.min(140,hitY*.35);
+    const gb=ctx.createLinearGradient(0,hitY-bh,0,hitY);gb.addColorStop(0,hexA(c,0));gb.addColorStop(1,hexA(c,.35+.25*pulse));
+    ctx.fillStyle=gb;ctx.fillRect(k.x,hitY-bh,k.w,bh);
+  }
   // notes qui tombent
   ctx.save();ctx.beginPath();ctx.rect(0,0,W,hitY);ctx.clip();
   for(const n of R.notes){
@@ -1163,9 +1176,15 @@ function draw(){
     ctx.globalAlpha=n.play?1:(S.mode==='listen'?.6:.25);
     if(n.hit) col=blk?'#1f9e6c':'#3ddc97';else if(n.missed) col='#59607f';
     const active=(n.play||S.mode==='listen')&&pos>=n.start-1e-3&&pos<n.start+n.dur;
-    if(active&&!n.missed){ctx.shadowColor=col;ctx.shadowBlur=16;}
+    const toPlay=active&&!n.missed&&!n.hit&&(n.play||S.mode==='listen');
+    if(toPlay){ // c'est le moment : la note s'éclaire, brille et pulse
+      col=blk?HAND_SHARP_HOT[n.hand]:HAND_HOT[n.hand];ctx.globalAlpha=1;
+      ctx.shadowColor=HAND[n.hand];ctx.shadowBlur=24+16*pulse;
+    }else if(active&&!n.missed){ctx.shadowColor=col;ctx.shadowBlur=16;}
+    else if(n.play&&!n.hit&&!n.missed){const d=n.start-pos;if(d>0&&d<1.5){ctx.shadowColor=col;ctx.shadowBlur=14*(1-d/1.5);}} // la note qui approche s'illumine peu à peu
     ctx.fillStyle=col;rr(x,yB-h,w,h,Math.min(7,w/3));ctx.fill();ctx.shadowBlur=0;
-    if(n.play&&!n.hit&&!n.missed){ctx.strokeStyle='rgba(255,255,255,.35)';ctx.lineWidth=1;ctx.stroke();}
+    if(toPlay){ctx.strokeStyle='#fff';ctx.lineWidth=2.5+1.5*pulse;ctx.stroke();}
+    else if(n.play&&!n.hit&&!n.missed){ctx.strokeStyle='rgba(255,255,255,.35)';ctx.lineWidth=1;ctx.stroke();}
     if(S.names&&n.play&&h>17&&w>13){
       ctx.globalAlpha=1;ctx.fillStyle=blk?'rgba(255,255,255,.95)':'rgba(10,12,25,.85)';ctx.textAlign='center';
       ctx.font=`700 ${Math.min(13,w*.42)}px -apple-system,sans-serif`;ctx.fillText(fmtName(n.midi),k.x+k.w/2,yB-6);
@@ -1176,18 +1195,14 @@ function draw(){
   // ligne de frappe
   const grad=ctx.createLinearGradient(0,hitY-14,0,hitY);grad.addColorStop(0,'rgba(124,140,255,0)');grad.addColorStop(1,'rgba(124,140,255,.35)');
   ctx.fillStyle=grad;ctx.fillRect(0,hitY-14,W,14);ctx.fillStyle='#7c8cff';ctx.fillRect(0,hitY-2,W,2);
-  // touches à jouer maintenant
-  const target={};
-  if(S.mode==='wait'&&R.groups[R.gi]&&R.pos>=R.groups[R.gi].start-0.05) R.groups[R.gi].notes.forEach(n=>{if(!n.hit) target[n.midi]=n.hand;});
-  // en Écoute, toutes les touches jouées par l'app s'allument (les deux mains)
-  for(const n of (S.mode==='listen'?R.notes:R.play)){if(n.start>pos+.02) break;if(pos<n.start+n.dur&&!n.missed&&target[n.midi]===undefined&&S.mode!=='wait') target[n.midi]=n.hand;}
+  for(const m in target){const k=L.map[m];if(!k) continue;ctx.shadowColor=HAND[target[m]];ctx.shadowBlur=18;ctx.fillStyle=HAND_HOT[target[m]];ctx.fillRect(k.x-2,hitY-6,k.w+4,7);ctx.shadowBlur=0;}
   const fx=m=>{const f=keyFx[m];if(!f) return null;const a=1-(now-f.t)/350;if(a<=0){delete keyFx[m];return null;}return {c:f.c,a};};
   // touches blanches
   for(const m of L.whites){
     const k=L.map[m];const f=fx(m);let fill='#f3f4fa';
-    if(target[m]) fill=HAND_SOFT[target[m]];
     if(pressed.has(m)) fill='#a9b4ff';
     ctx.fillStyle=fill;rr(k.x+1,hitY,k.w-2,kbH-3,5);ctx.fill();
+    if(target[m]&&!pressed.has(m)){ctx.globalAlpha=.6+.35*pulse;ctx.fillStyle=HAND[target[m]];rr(k.x+1,hitY,k.w-2,kbH-3,5);ctx.fill();ctx.globalAlpha=1;}
     if(f&&f.c!=='press'){ctx.globalAlpha=Math.max(.35,f.a);ctx.fillStyle=f.c==='ok'?'#3ddc97':'#ff5d73';rr(k.x+1,hitY,k.w-2,kbH-3,5);ctx.fill();ctx.globalAlpha=1;}
     const pc=m%12;
     if(S.names||pc===0){
@@ -1199,9 +1214,10 @@ function draw(){
   // touches noires
   for(let m=L.lo;m<=L.hi;m++){
     const k=L.map[m];if(!k||!k.black) continue;const f=fx(m);let fill='#1b1e2e';
-    if(target[m]) fill=HAND_DARK[target[m]];
+    if(target[m]) fill=HAND[target[m]];
     if(pressed.has(m)) fill='#5b67d6';
     ctx.fillStyle=fill;rr(k.x,hitY,k.w,kbH*.62,4);ctx.fill();
+    if(target[m]&&!pressed.has(m)){ctx.strokeStyle='#fff';ctx.lineWidth=1.5+1.5*pulse;ctx.stroke();}
     if(f&&f.c!=='press'){ctx.globalAlpha=Math.max(.35,f.a);ctx.fillStyle=f.c==='ok'?'#3ddc97':'#ff5d73';rr(k.x,hitY,k.w,kbH*.62,4);ctx.fill();ctx.globalAlpha=1;}
   }
   // textes
@@ -1218,8 +1234,11 @@ function draw(){
   }else if(R.playing&&R.waiting&&S.mode==='wait'){
     const g=R.groups[R.gi];
     if(g){const left=g.notes.filter(n=>!n.hit);
-      ctx.font='600 16px -apple-system,sans-serif';ctx.fillStyle=HAND[left[0]?.hand||'R'];
-      ctx.fillText('À toi : '+left.map(n=>fmtName(n.midi)).join(' + '),W/2,58);}
+      const txt='À toi : '+left.map(n=>fmtName(n.midi)).join(' + ');
+      ctx.font='700 17px -apple-system,sans-serif';const tw=ctx.measureText(txt).width;
+      ctx.fillStyle='rgba(15,18,32,.88)';rr(W/2-tw/2-14,38,tw+28,30,15);ctx.fill();
+      ctx.strokeStyle=HAND[left[0]?.hand||'R'];ctx.lineWidth=1.5;ctx.stroke();
+      ctx.fillStyle=HAND_HOT[left[0]?.hand||'R'];ctx.fillText(txt,W/2,59);}
   }else if(!R.playing&&!R.finished&&pos<=R.startBeat-R.countIn+1e-3){
     const fs=Math.max(12,Math.min(15,W/30)),maxW=W-32,mi=MODE_INFO[S.mode];
     let y=Math.max(64,hitY*.26);
