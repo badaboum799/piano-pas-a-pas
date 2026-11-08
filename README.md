@@ -9,3 +9,7 @@ Prototype d'application d'apprentissage du piano : les partitions deviennent des
 - **iPad / iPhone** : app « Web MIDI Browser » (Safari ne gère pas le MIDI).
 
 Import de partitions au format MusicXML (`.musicxml`, `.mxl`) ou MIDI (`.mid`). Exemples : `exemple-deux-mains.musicxml`, `exemple-deux-mains.mid`.
+
+## Crédits
+
+Son de piano : Salamander Grand Piano (Yamaha C5) par Alexander Holm, sous licence [Creative Commons BY 3.0](https://creativecommons.org/licenses/by/3.0/). Les 30 échantillons MP3 du dossier `sounds/piano` proviennent de la version distribuée par [Tone.js](https://github.com/Tonejs/audio).

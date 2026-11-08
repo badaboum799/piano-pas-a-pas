@@ -52,6 +52,7 @@ select{max-width:240px}
 .field input[type=number]{width:70px;padding:6px 8px}
 .check{display:flex;align-items:center;gap:8px;color:var(--text);font-size:14px}
 .check input{width:18px;height:18px;accent-color:var(--accent)}
+.credit{font-size:11px;color:var(--muted)}
 .help{font-size:12px;color:var(--muted);line-height:1.5;grid-column:1/-1}
 kbd{background:var(--panel2);border:1px solid var(--line);border-radius:4px;padding:0 5px;font-size:11px}
 #hud{display:flex;gap:16px;font-size:13px;color:var(--muted);white-space:nowrap}
@@ -168,6 +169,7 @@ kbd{background:var(--panel2);border:1px solid var(--line);border-radius:4px;padd
       <label class="check"><input type="checkbox" id="optNames"> Afficher les noms des notes</label>
       <label class="check"><input type="checkbox" id="optAccomp"> L'app joue l'autre main</label>
       <label class="check"><input type="checkbox" id="optSound"> Son pour le clavier de l'ordi / l'écran</label>
+      <span class="credit">Son de piano : Salamander Grand Piano, par Alexander Holm (licence CC-BY 3.0)</span>
     </div>
     <div class="help">
       <b>Mode Attente</b> : le morceau s'arrête jusqu'à ce que tu joues la bonne note. <b>Mode Tempo</b> : le morceau avance tout seul, il faut jouer en rythme. <b>Mode Écoute</b> : l'app joue toute la musique en rythme ; tu peux écouter ou jouer par-dessus (ton jeu est quand même noté).<br>
@@ -584,16 +586,67 @@ function showActions(card,sugg){
 }
 
 /* ================= Son (Web Audio) ================= */
-let actx=null;
+let actx=null,master=null;
 function audio(){
-  if(!actx){const AC=window.AudioContext||window.webkitAudioContext;if(AC) actx=new AC();}
+  if(!actx){
+    const AC=window.AudioContext||window.webkitAudioContext;
+    if(AC){
+      actx=new AC();
+      // bus général : un compresseur évite la saturation quand plusieurs notes sonnent ensemble
+      const comp=actx.createDynamicsCompressor();comp.threshold.value=-14;comp.ratio.value=4;
+      master=actx.createGain();master.gain.value=.75;master.connect(comp).connect(actx.destination);
+      decodeSamples();
+    }
+  }
   if(actx&&actx.state==='suspended') actx.resume();
   return actx;
+}
+
+/* ----- Vrai son de piano : Salamander Grand Piano (Yamaha C5), par Alexander Holm, licence CC-BY 3.0 -----
+   30 enregistrements (une note sur trois). Pour les autres notes, on prend l'enregistrement le plus proche
+   et on ajuste sa hauteur (au plus 1 demi-ton). Tant que les sons ne sont pas chargés, le son de synthèse sert de secours. */
+const SAMPLE_NOTES=['A0','C1','Ds1','Fs1','A1','C2','Ds2','Fs2','A2','C3','Ds3','Fs3','A3','C4','Ds4','Fs4','A4','C5','Ds5','Fs5','A5','C6','Ds6','Fs6','A6','C7','Ds7','Fs7','A7','C8'];
+const sampleBufs={};let sampleFiles=null,samplesDecoding=false;
+function prefetchSamples(){ // téléchargement dès l'ouverture de la page (pas besoin du son pour ça)
+  if(sampleFiles) return;
+  const PC={C:0,Ds:3,Fs:6,A:9};
+  sampleFiles=Promise.all(SAMPLE_NOTES.map(async n=>{
+    const m=/^(A|C|Ds|Fs)(\d)$/.exec(n),midi=(+m[2]+1)*12+PC[m[1]];
+    try{const r=await fetch('sounds/piano/'+n+'.mp3');if(!r.ok) return null;return {midi,data:await r.arrayBuffer()};}catch(e){return null;}
+  }));
+}
+function decodeOne(a,data){return new Promise((res,rej)=>{const p=a.decodeAudioData(data,res,rej);if(p&&p.then) p.then(res,rej);});}
+async function decodeSamples(){ // décodage dès que le son est autorisé (premier appui)
+  if(samplesDecoding||!actx) return;samplesDecoding=true;prefetchSamples();
+  const files=await sampleFiles;
+  await Promise.all(files.map(async f=>{if(f){try{sampleBufs[f.midi]=await decodeOne(actx,f.data);}catch(e){}}}));
+}
+function samplerTone(midi,dur,vel){
+  const a=actx;let best=null,bd=99;
+  for(const k in sampleBufs){const d=Math.abs(k-midi);if(d<bd){bd=d;best=+k;}}
+  if(best===null||bd>2) return null;
+  const t=a.currentTime,lvl=.3+.7*vel;
+  const src=a.createBufferSource();src.buffer=sampleBufs[best];src.playbackRate.value=Math.pow(2,(midi-best)/12);
+  const g=a.createGain();g.gain.setValueAtTime(lvl,t);
+  src.connect(g).connect(master);src.start(t);
+  let done=false;
+  const release=at=>{ // relâcher la touche : l'étouffoir coupe la corde en ~0,3 s
+    if(done) return;done=true;at=Math.max(at,a.currentTime);
+    g.gain.cancelScheduledValues(at+1e-4);g.gain.setValueAtTime(lvl,at);g.gain.setTargetAtTime(0.0001,at,.07);
+    src.stop(at+.6);
+  };
+  if(dur!==null) release(t+Math.max(.06,dur));
+  else setTimeout(()=>release(a.currentTime),20000);
+  return {release:()=>release(a.currentTime)};
+}
+function playTone(midi,dur=1,vel=.7){
+  if(!actx) return null;
+  return samplerTone(midi,dur,vel)||synthTone(midi,dur,vel);
 }
 // Joue une note qui dure exactement `dur` secondes : attaque, son tenu (qui baisse doucement comme
 // un piano) jusqu'à la fin de la note, puis relâchement rapide. Avec dur=null, la note est tenue
 // jusqu'à l'appel de release() (touche de l'écran ou du clavier d'ordinateur relâchée).
-function playTone(midi,dur=1,vel=.7){
+function synthTone(midi,dur=1,vel=.7){
   const a=actx;if(!a) return null;
   const t=a.currentTime,f=440*Math.pow(2,(midi-69)/12),peak=.22*vel;
   const g=a.createGain(),gg=g.gain;
@@ -607,7 +660,7 @@ function playTone(midi,dur=1,vel=.7){
   const o1=a.createOscillator();o1.type='triangle';o1.frequency.value=f;
   const o2=a.createOscillator();o2.type='sine';o2.frequency.value=f*2;
   const g2=a.createGain();g2.gain.value=.25;
-  o1.connect(lp);o2.connect(g2).connect(lp);lp.connect(g).connect(a.destination);
+  o1.connect(lp);o2.connect(g2).connect(lp);lp.connect(g).connect(master);
   o1.start(t);o2.start(t);
   let done=false;
   const release=at=>{
@@ -970,7 +1023,7 @@ function refreshUI(){
 }
 
 S.level=matchLevel();
-fillSongs();refreshUI();resize();resetRun();initMIDI();requestAnimationFrame(frame);
+fillSongs();refreshUI();resize();resetRun();initMIDI();prefetchSamples();requestAnimationFrame(frame);
 window.__piano={S,get R(){return R;},noteOn,noteOff,parseMusicXML,get SONG(){return SONG;}};
 </script>
 </body>
