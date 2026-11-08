@@ -41,7 +41,9 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
     }
 
     private func load() {
-        webView.load(URLRequest(url: Self.appURL, cachePolicy: .useProtocolCachePolicy, timeoutInterval: 20))
+        // la page est toujours rechargée depuis le site (les mises à jour arrivent tout de suite) ;
+        // les sons, eux, restent en cache
+        webView.load(URLRequest(url: Self.appURL, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 20))
     }
 
     private func sendDevices(_ devices: [MIDIBridge.Device]) {
