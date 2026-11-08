@@ -15,3 +15,9 @@ Les **PDF et photos de partitions** peuvent être lus par une IA (via OpenRouter
 ## Crédits
 
 Son de piano : Salamander Grand Piano (Yamaha C5) par Alexander Holm, sous licence [Creative Commons BY 3.0](https://creativecommons.org/licenses/by/3.0/). Les 30 échantillons MP3 du dossier `sounds/piano` proviennent de la version distribuée par [Tone.js](https://github.com/Tonejs/audio).
+
+## App iPad / iPhone (dossier `ios/`)
+
+Petite app native qui ouvre le site en plein écran et branche le MIDI de l'appareil (CoreMIDI) sur la page :
+plus besoin de Web MIDI Browser. Ouvrir `ios/PianoPasAPas.xcodeproj` dans Xcode, choisir son équipe
+(Signing & Capabilities), brancher l'iPad et lancer. Avec un Apple ID gratuit, l'app est à réinstaller tous les 7 jours.
