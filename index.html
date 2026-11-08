@@ -107,8 +107,8 @@ kbd{background:var(--panel2);border:1px solid var(--line);border-radius:4px;padd
     <div id="midiStatus" class="pill o1" title="Cliquer pour relancer la détection"><span class="full">Recherche du piano…</span><span class="short">🎹 …</span></div>
     <div class="spacer"></div>
     <select id="songSel" class="o2" aria-label="Morceau"></select>
-    <label class="btn ghost wide-only" for="fileIn">Importer MusicXML</label>
-    <input type="file" id="fileIn" accept=".xml,.musicxml,.mxl,application/vnd.recordare.musicxml+xml,application/vnd.recordare.musicxml" style="display:none">
+    <label class="btn ghost wide-only" for="fileIn">Importer une partition</label>
+    <input type="file" id="fileIn" accept=".xml,.musicxml,.mxl,.mid,.midi,.pdf,application/vnd.recordare.musicxml+xml,application/vnd.recordare.musicxml,audio/midi,audio/x-midi,application/pdf" style="display:none">
   </header>
   <div class="bar sub">
     <div class="seg levels wide-only"></div>
@@ -146,8 +146,8 @@ kbd{background:var(--panel2);border:1px solid var(--line);border-radius:4px;padd
     <div class="field compact-only">Niveau
       <div class="seg levels"></div>
     </div>
-    <div class="field compact-only">Partition personnelle
-      <div class="row"><label class="btn" for="fileIn">Importer MusicXML</label></div>
+    <div class="field compact-only">Partition personnelle (MusicXML ou MIDI)
+      <div class="row"><label class="btn" for="fileIn">Importer une partition</label></div>
     </div>
     <div class="field">Partition
       <div class="seg" data-key="simp">
@@ -317,6 +317,61 @@ async function readScoreFile(file){
   return file.text();
 }
 
+/* ================= Import MIDI (.mid) ================= */
+function parseMIDI(buf,title){
+  const d=new DataView(buf),size=buf.byteLength;
+  const str=(at,n)=>{let s='';for(let i=0;i<n&&at+i<size;i++) s+=String.fromCharCode(d.getUint8(at+i));return s;};
+  if(size<14||str(0,4)!=='MThd') throw new Error("Ce fichier n'est pas un fichier MIDI");
+  const ntrks=d.getUint16(10),division=d.getUint16(12);
+  if(division&0x8000) throw new Error('MIDI au format SMPTE non géré');
+  let p=8+d.getUint32(4),read=0,tempo=null,ts=null;
+  const groups=new Map(); // une « voix » = piste + canal
+  while(p+8<=size&&read<ntrks){
+    const id=str(p,4),len=d.getUint32(p+4);let q=p+8;const end=Math.min(size,q+len);p=q+len;
+    if(id!=='MTrk') continue;
+    const tr=read++;let tick=0,status=0;const open={};
+    const vlq=()=>{let v=0,b;do{b=d.getUint8(q++);v=(v<<7)|(b&0x7f);}while((b&0x80)&&q<end);return v;};
+    while(q<end){
+      tick+=vlq();if(q>=end) break;
+      const b=d.getUint8(q);
+      if(b&0x80){status=b;q++;}else if(!status) break; // « running status »
+      const type=status&0xf0,ch=status&0x0f;
+      if(status===0xff){ // méta-événement
+        const mt=d.getUint8(q++),l=vlq();
+        if(mt===0x51&&l===3&&tempo===null) tempo=60000000/((d.getUint8(q)<<16)|(d.getUint8(q+1)<<8)|d.getUint8(q+2));
+        if(mt===0x58&&l>=2&&ts===null) ts=[d.getUint8(q),Math.pow(2,d.getUint8(q+1))];
+        q+=l;status=0;if(mt===0x2f) break;
+      }else if(status===0xf0||status===0xf7){q+=vlq();status=0;}
+      else if(type===0x90||type===0x80){
+        const n=d.getUint8(q++),v=d.getUint8(q++),k=ch+'|'+n;
+        if(type===0x90&&v>0){(open[k]=open[k]||[]).push(tick);}
+        else{
+          const st=open[k]&&open[k].shift();
+          if(st!==undefined&&ch!==9){ // canal 10 = percussions, ignoré
+            const key=tr+'|'+ch;if(!groups.has(key)) groups.set(key,[]);
+            const q12=x=>Math.round(x*12)/12; // on aligne sur une grille fine pour regrouper les accords
+            groups.get(key).push({midi:n,start:q12(st/division),dur:Math.max(1/12,q12((tick-st)/division))});
+          }
+        }
+      }else if(type===0xc0||type===0xd0) q+=1;
+      else q+=2;
+    }
+  }
+  const gs=[...groups.values()].filter(a=>a.length);
+  if(!gs.length) throw new Error('Aucune note dans ce fichier MIDI');
+  const avg=a=>a.reduce((s,n)=>s+n.midi,0)/a.length;
+  let notes;
+  if(gs.length===2){ // cas classique : une piste par main
+    gs.sort((x,y)=>avg(y)-avg(x));gs[0].forEach(n=>n.hand='R');gs[1].forEach(n=>n.hand='L');notes=gs.flat();
+  }else{ // sinon on coupe au Do central
+    notes=gs.flat();notes.forEach(n=>n.hand=n.midi>=60?'R':'L');
+  }
+  return finalizeSong({id:'imp-'+Date.now(),title,composer:'',bpm:Math.min(240,Math.max(30,Math.round(tempo||90))),
+    beatsPerMeasure:ts?ts[0]*4/ts[1]:4,measureStarts:[],notes,imported:true});
+}
+function bufToB64(buf){const b=new Uint8Array(buf);let s='';for(let i=0;i<b.length;i+=8192) s+=String.fromCharCode.apply(null,b.subarray(i,i+8192));return btoa(s);}
+function b64ToBuf(s){const bin=atob(s),b=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++) b[i]=bin.charCodeAt(i);return b.buffer;}
+
 /* ================= Stockage local (optionnel) ================= */
 const store={
   get(k,d){try{const v=localStorage.getItem('ppap.'+k);return v?JSON.parse(v):d;}catch(e){return d;}},
@@ -333,7 +388,10 @@ const LEVELS=[
 const S=Object.assign({hands:'R',simp:1,mode:'wait',speed:.6,names:true,notation:'fr',accomp:true,appSound:true,from:1,to:9999,level:0},
   store.get('settings',{}),{from:1,to:9999});
 const SONGS=SONG_DEFS.map(makeSong);
-for(const imp of store.get('imports',[])){try{SONGS.push(Object.assign(parseMusicXML(imp.xml,imp.title),{id:imp.id}));}catch(e){}}
+for(const imp of store.get('imports',[])){try{
+  const s=imp.type==='midi'?parseMIDI(b64ToBuf(imp.b64),imp.title):parseMusicXML(imp.xml,imp.title);
+  SONGS.push(Object.assign(s,{id:imp.id}));
+}catch(e){}}
 let SONG=SONGS.find(s=>s.id===store.get('song'))||SONGS[0];
 let R=null;
 let octave=4;
@@ -750,7 +808,7 @@ window.addEventListener('keyup',e=>{const off=CODE_MAP[e.code];if(off!==undefine
 
 /* ================= Interface ================= */
 const $=id=>document.getElementById(id);
-function toast(t){const el=$('toast');el.textContent=t;el.classList.add('show');clearTimeout(toast._t);toast._t=setTimeout(()=>el.classList.remove('show'),2600);}
+function toast(t,ms=2600){const el=$("toast");el.textContent=t;el.classList.add("show");clearTimeout(toast._t);toast._t=setTimeout(()=>el.classList.remove("show"),ms);}
 function saveSettings(){const {hands,simp,mode,speed,names,notation,accomp,appSound,level}=S;store.set('settings',{hands,simp,mode,speed,names,notation,accomp,appSound,level});}
 function matchLevel(){return LEVELS.findIndex(l=>l.hands===S.hands&&l.simp===S.simp&&l.mode===S.mode&&Math.abs(l.speed-S.speed)<.001);}
 function applyLevel(i){const l=LEVELS[i];Object.assign(S,{hands:l.hands,simp:l.simp,mode:l.mode,speed:l.speed,level:i});}
@@ -792,14 +850,25 @@ function fillSongs(){
 $('songSel').onchange=e=>{SONG=SONGS.find(s=>s.id===e.target.value);store.set('song',SONG.id);S.from=1;S.to=9999;layoutKey='';refreshUI();resetRun();e.target.blur();};
 $('fileIn').onchange=async e=>{
   const f=e.target.files[0];e.target.value='';if(!f) return;
+  const title=f.name.replace(/\.[^.]+$/,'');
+  if(/\.pdf$/i.test(f.name)){
+    toast("Les PDF ne contiennent qu'une image de la partition : l'app ne peut pas les lire. Cherche la version MusicXML ou MIDI du morceau (par ex. sur musescore.com).",7000);
+    return;
+  }
   try{
-    const xml=await readScoreFile(f);
-    const song=parseMusicXML(xml,f.name.replace(/\.[^.]+$/,''));
+    let song,saved;
+    if(/\.midi?$/i.test(f.name)){
+      const buf=await f.arrayBuffer();
+      song=parseMIDI(buf,title);saved={id:song.id,title,type:'midi',b64:bufToB64(buf)};
+    }else{
+      const xml=await readScoreFile(f);
+      song=parseMusicXML(xml,title);saved={id:song.id,title:song.title,xml};
+    }
     SONGS.push(song);SONG=song;
-    const imps=store.get('imports',[]);imps.push({id:song.id,title:song.title,xml});store.set('imports',imps.slice(-10));
+    const imps=store.get('imports',[]);imps.push(saved);store.set('imports',imps.slice(-10));
     store.set('song',song.id);S.from=1;S.to=9999;layoutKey='';fillSongs();refreshUI();resetRun();
     const nL=song.notes.filter(n=>n.hand==='L').length;
-    toast(`« ${song.title} » importé : ${song.notes.length} notes, ${song.measureStarts.length} mesures${nL?'':' (une seule portée : tout en main droite)'}`);
+    toast(`« ${song.title} » importé : ${song.notes.length} notes, ${song.measureStarts.length} mesures${nL?'':' (tout en main droite)'}`);
   }catch(err){toast('Import impossible : '+err.message);}
 };
 

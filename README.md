@@ -8,4 +8,4 @@ Prototype d'application d'apprentissage du piano : les partitions deviennent des
 - **Android** : Chrome, piano branché avec un câble USB OTG.
 - **iPad / iPhone** : app « Web MIDI Browser » (Safari ne gère pas le MIDI).
 
-Import de partitions au format MusicXML (`.musicxml`, `.mxl`). Exemple : `exemple-deux-mains.musicxml`.
+Import de partitions au format MusicXML (`.musicxml`, `.mxl`) ou MIDI (`.mid`). Exemples : `exemple-deux-mains.musicxml`, `exemple-deux-mains.mid`.
