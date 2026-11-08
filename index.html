@@ -55,7 +55,8 @@ kbd{background:var(--panel2);border:1px solid var(--line);border-radius:4px;padd
 #progress{height:3px;background:var(--line)}
 #progress div{height:100%;width:0;background:var(--accent);transition:width .1s linear}
 #stage{position:relative;flex:1;min-height:200px}
-#cv{position:absolute;inset:0;display:block;touch-action:none}
+#stage{overflow:hidden}
+#cv{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none}
 #rangeChip{display:none}
 #rangeChip.show{display:inline-block}
 .modal{position:fixed;inset:0;background:rgba(5,7,15,.65);display:flex;align-items:center;justify-content:center;z-index:10;padding:16px}
@@ -69,51 +70,85 @@ kbd{background:var(--panel2);border:1px solid var(--line);border-radius:4px;padd
 .actions{display:flex;flex-direction:column;gap:8px;margin-top:14px}
 #toast{position:fixed;left:50%;top:70px;transform:translateX(-50%);background:var(--panel2);border:1px solid var(--line);padding:10px 16px;border-radius:12px;font-size:14px;opacity:0;transition:opacity .25s;pointer-events:none;z-index:20;max-width:90vw;text-align:center}
 #toast.show{opacity:1}
+.short,.compact-only{display:none}
 @media (max-width:700px){ #hud{display:none} .brand{font-size:15px} }
+/* ===== Téléphone (portrait ou paysage) : une barre compacte, réglages en panneau du bas ===== */
+@media (max-width:760px), (max-height:520px){
+  html,body{height:100dvh}
+  #top{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:6px 8px;background:var(--panel);border-bottom:1px solid var(--line)}
+  #top .bar{display:contents}
+  .brand,.wide-only,#hud,.spacer,.ctl .lbl,.speedctl input[type=range]{display:none !important}
+  .full{display:none}.short{display:inline}
+  .o1{order:1}.o2{order:2;flex:1 1 120px;min-width:0;max-width:none}.o3{order:3}.o4{order:4}.o5{order:5}.o6{order:6}.o7{order:7}
+  .pill{font-size:12px;padding:6px 8px;max-width:none}
+  select,.btn{font-size:13px;padding:7px 9px}
+  .btn.primary{min-width:0}
+  .seg button{font-size:12px;padding:6px 8px}
+  .ctl{gap:4px}
+  .speedctl{flex:0 0 auto;min-width:0}
+  .btn.mini{padding:3px 10px}
+  .speedval{width:auto;font-size:13px}
+  .settings{position:fixed;left:0;right:0;bottom:0;z-index:8;max-height:75dvh;overflow:auto;border-top:1px solid var(--line);border-radius:16px 16px 0 0;
+    box-shadow:0 -12px 40px rgba(0,0,0,.5);grid-template-columns:1fr;padding:14px 14px calc(14px + env(safe-area-inset-bottom))}
+  .compact-only{display:flex}
+  button.compact-only{display:block;width:100%}
+  .help{display:none}
+  #toast{top:auto;bottom:40%}
+  .card{padding:16px}
+  .big{font-size:40px}
+}
 </style>
 </head>
 <body>
 <div id="app">
+  <div id="top">
   <header class="bar">
     <div class="brand">🎹 Piano Pas à Pas</div>
-    <div id="midiStatus" class="pill" title="Cliquer pour relancer la détection">Recherche du piano…</div>
+    <div id="midiStatus" class="pill o1" title="Cliquer pour relancer la détection"><span class="full">Recherche du piano…</span><span class="short">🎹 …</span></div>
     <div class="spacer"></div>
-    <select id="songSel" aria-label="Morceau"></select>
-    <label class="btn ghost" for="fileIn">Importer MusicXML</label>
+    <select id="songSel" class="o2" aria-label="Morceau"></select>
+    <label class="btn ghost wide-only" for="fileIn">Importer MusicXML</label>
     <input type="file" id="fileIn" accept=".xml,.musicxml,.mxl,application/vnd.recordare.musicxml+xml,application/vnd.recordare.musicxml" style="display:none">
   </header>
   <div class="bar sub">
-    <div class="seg" id="levels"></div>
-    <button id="moreBtn" class="btn ghost">Réglages ▾</button>
-    <button id="rangeChip" class="btn ghost" title="Revenir au morceau entier"></button>
+    <div class="seg levels wide-only"></div>
+    <button id="moreBtn" class="btn ghost o3" aria-label="Réglages"><span class="full">Réglages ▾</span><span class="short">⚙︎</span></button>
+    <button id="rangeChip" class="btn ghost o7" title="Revenir au morceau entier"></button>
     <div class="spacer"></div>
     <div id="hud">
       <span>Précision <b id="hAcc">–</b></span>
       <span>Notes <b id="hNotes">–</b></span>
       <span>Série <b id="hCombo">0</b></span>
     </div>
-    <button id="restartBtn" class="btn" title="Recommencer">↺</button>
-    <button id="playBtn" class="btn primary">▶ Jouer</button>
+    <button id="restartBtn" class="btn o4" title="Recommencer">↺</button>
+    <button id="playBtn" class="btn primary o5">▶ Jouer</button>
   </div>
   <div class="bar ctrl">
-    <div class="ctl"><span class="lbl">Mains</span>
+    <div class="ctl o6"><span class="lbl">Mains</span>
       <div class="seg" data-key="hands">
-        <button data-v="R">Droite</button><button data-v="L">Gauche</button><button data-v="RL">Les deux</button>
+        <button data-v="R"><span class="full">Droite</span><span class="short">MD</span></button><button data-v="L"><span class="full">Gauche</span><span class="short">MG</span></button><button data-v="RL"><span class="full">Les deux</span><span class="short">2 mains</span></button>
       </div>
     </div>
-    <div class="ctl"><span class="lbl">Mode</span>
+    <div class="ctl o6"><span class="lbl">Mode</span>
       <div class="seg" data-key="mode">
         <button data-v="wait">Attente</button><button data-v="tempo">Tempo</button><button data-v="listen">Écoute</button>
       </div>
     </div>
-    <div class="ctl speedctl"><span class="lbl">Vitesse</span>
+    <div class="ctl speedctl o6"><span class="lbl">Vitesse</span>
       <button class="btn mini" id="speedDown" aria-label="Ralentir">−</button>
       <input type="range" id="speed" min="30" max="120" step="5">
       <button class="btn mini" id="speedUp" aria-label="Accélérer">+</button>
       <span id="speedLbl" class="speedval"></span>
     </div>
   </div>
+  </div>
   <div id="settings" class="settings hidden">
+    <div class="field compact-only">Niveau
+      <div class="seg levels"></div>
+    </div>
+    <div class="field compact-only">Partition personnelle
+      <div class="row"><label class="btn" for="fileIn">Importer MusicXML</label></div>
+    </div>
     <div class="field">Partition
       <div class="seg" data-key="simp">
         <button data-v="1">Mélodie</button><button data-v="2">Simplifiée</button><button data-v="3">Complète</button>
@@ -134,6 +169,7 @@ kbd{background:var(--panel2);border:1px solid var(--line);border-radius:4px;padd
       <b>Mode Attente</b> : le morceau s'arrête jusqu'à ce que tu joues la bonne note. <b>Mode Tempo</b> : le morceau avance tout seul, il faut jouer en rythme. <b>Mode Écoute</b> : l'app joue toute la musique en rythme ; tu peux écouter ou jouer par-dessus (ton jeu est quand même noté).<br>
       Sans piano : touche les touches à l'écran, ou utilise le clavier de l'ordi (AZERTY) : <kbd>Q</kbd><kbd>S</kbd><kbd>D</kbd><kbd>F</kbd><kbd>G</kbd><kbd>H</kbd><kbd>J</kbd><kbd>K</kbd> = <span id="scaleLbl"></span>, <kbd>Z</kbd><kbd>E</kbd><kbd>T</kbd><kbd>Y</kbd><kbd>U</kbd> = dièses, <kbd>←</kbd><kbd>→</kbd> = octave (<span id="octLbl"></span>), <kbd>Espace</kbd> = jouer / pause.
     </div>
+    <button id="closeSettings" class="btn primary compact-only">Fermer les réglages</button>
   </div>
   <div id="progress"><div></div></div>
   <div id="stage"><canvas id="cv"></canvas></div>
@@ -493,7 +529,12 @@ function click(accent){
 /* ================= Détection du piano (Web MIDI) ================= */
 const statusEl=document.getElementById('midiStatus');
 let midiAccess=null,lastNames='';
-function setStatus(cls,text){statusEl.className='pill '+cls;statusEl.textContent=text;}
+function setStatus(cls,text){
+  statusEl.className='pill o1 '+cls;statusEl.title=text+' (toucher pour relancer la détection)';
+  const short=cls==='on'?'🎹 ✓':cls==='warn'?'⚠︎ MIDI':'🎹 ✕';
+  statusEl.innerHTML='';
+  for(const [c,t] of [['full',text],['short',short]]){const s=document.createElement('span');s.className=c;s.textContent=t;statusEl.appendChild(s);}
+}
 async function initMIDI(){
   if(!navigator.requestMIDIAccess){
     setStatus('warn',"MIDI non géré par ce navigateur : Chrome sur Mac, ou l'app « Web MIDI Browser » sur iPad");return;
@@ -527,13 +568,36 @@ function resize(){
 }
 if(window.ResizeObserver) new ResizeObserver(resize).observe(document.getElementById('stage'));
 window.addEventListener('resize',resize);
+// Étendue du clavier affiché. Sur petit écran, on zoome sur les seules notes que l'élève doit jouer.
+function kbRange(){
+  if(W>=700||!R||!R.play.length) return [SONG.lo,SONG.hi];
+  if(!R.kb){
+    let lo=Math.min(...R.play.map(n=>n.midi)),hi=Math.max(...R.play.map(n=>n.midi));
+    lo-=((lo%12)+12)%12;hi+=11-(hi%12);
+    // une note pile sur un Do aigu ne mérite pas une octave entière : on s'arrête à ce Do
+    if(R.play.filter(n=>n.midi>hi-12).every(n=>n.midi===hi-11)&&hi-lo>=23) hi-=11;
+    R.kb=[lo,hi];
+  }
+  return R.kb;
+}
 function getLayout(){
-  const key=W+'|'+SONG.lo+'|'+SONG.hi;if(key===layoutKey) return layout;
-  const whites=[];for(let m=SONG.lo;m<=SONG.hi;m++) if(!isBlack(m)) whites.push(m);
+  const [lo,hi]=kbRange();
+  const key=W+'|'+lo+'|'+hi;if(key===layoutKey) return layout;
+  const whites=[];for(let m=lo;m<=hi;m++) if(!isBlack(m)) whites.push(m);
   const ww=W/whites.length,bw=ww*.6,map={};
   whites.forEach((m,i)=>map[m]={x:i*ww,w:ww,black:false});
-  for(let m=SONG.lo;m<=SONG.hi;m++) if(isBlack(m)&&map[m-1]) map[m]={x:map[m-1].x+ww-bw/2,w:bw,black:true};
-  layoutKey=key;layout={whites,ww,bw,map};return layout;
+  for(let m=lo;m<=hi;m++) if(isBlack(m)&&map[m-1]) map[m]={x:map[m-1].x+ww-bw/2,w:bw,black:true};
+  layoutKey=key;layout={whites,ww,bw,map,lo,hi};return layout;
+}
+// Écrit un texte centré en le coupant en plusieurs lignes si besoin ; renvoie le y suivant
+function wrapText(text,x,y,maxW,lh){
+  const words=text.split(' ');let line='';
+  for(const w of words){
+    const t=line?line+' '+w:w;
+    if(ctx.measureText(t).width>maxW&&line){ctx.fillText(line,x,y);y+=lh;line=w;}else line=t;
+  }
+  if(line){ctx.fillText(line,x,y);y+=lh;}
+  return y;
 }
 function rr(x,y,w,h,r){
   r=Math.max(0,Math.min(r,w/2,h/2));ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);
@@ -549,7 +613,7 @@ function draw(){
   const L=getLayout(),kbH=kbHeight(),hitY=H-kbH,spb=secPerBeat();
   const ppb=Math.max(55,Math.min(230,190*spb)),pos=R.pos,now=performance.now();
   // couloirs
-  for(let m=SONG.lo;m<=SONG.hi;m++){
+  for(let m=L.lo;m<=L.hi;m++){
     const k=L.map[m];if(!k) continue;
     if(k.black){ctx.fillStyle='rgba(0,0,0,.22)';ctx.fillRect(k.x,0,k.w,hitY);}
     const pc=m%12;
@@ -606,7 +670,7 @@ function draw(){
     if(m===60){ctx.fillStyle='#7c8cff';ctx.beginPath();ctx.arc(k.x+k.w/2,H-28,3,0,7);ctx.fill();}
   }
   // touches noires
-  for(let m=SONG.lo;m<=SONG.hi;m++){
+  for(let m=L.lo;m<=L.hi;m++){
     const k=L.map[m];if(!k||!k.black) continue;const f=fx(m);let fill='#1b1e2e';
     if(target[m]) fill=HAND_DARK[target[m]];
     if(pressed.has(m)) fill='#5b67d6';
@@ -630,11 +694,14 @@ function draw(){
       ctx.font='600 16px -apple-system,sans-serif';ctx.fillStyle=HAND[left[0]?.hand||'R'];
       ctx.fillText('À toi : '+left.map(n=>fmtName(n.midi)).join(' + '),W/2,30);}
   }else if(!R.playing&&!R.finished&&pos<=R.startBeat-R.countIn+1e-3){
-    ctx.fillStyle='rgba(232,234,246,.9)';ctx.font='700 22px -apple-system,sans-serif';
-    ctx.fillText(SONG.title,W/2,hitY*.35);
-    ctx.fillStyle='rgba(154,161,199,.95)';ctx.font='15px -apple-system,sans-serif';
-    ctx.fillText('Appuie sur ▶ Jouer. Les notes tombent : joue-les quand elles touchent le clavier.',W/2,hitY*.35+30);
-    ctx.fillText((S.hands==='R'?'Main droite (bleu)':S.hands==='L'?'Main gauche (orange)':'Main droite en bleu, main gauche en orange')+' · '+({wait:'Mode Attente',tempo:'Mode Tempo',listen:'Mode Écoute'}[S.mode])+' · '+Math.round(S.speed*100)+' %',W/2,hitY*.35+54);
+    const fs=Math.max(12,Math.min(15,W/30)),maxW=W-32;
+    let y=Math.max(30,hitY*.3);
+    ctx.fillStyle='rgba(232,234,246,.9)';ctx.font=`700 ${Math.round(fs*1.45)}px -apple-system,sans-serif`;
+    y=wrapText(SONG.title,W/2,y,maxW,fs*1.9)+4;
+    ctx.fillStyle='rgba(154,161,199,.95)';ctx.font=`${fs}px -apple-system,sans-serif`;
+    y=wrapText('Appuie sur ▶ Jouer. Les notes tombent : joue-les quand elles touchent le clavier.',W/2,y,maxW,fs*1.5);
+    y=wrapText((S.hands==='R'?'Main droite (bleu)':S.hands==='L'?'Main gauche (orange)':'Main droite en bleu, main gauche en orange')+' · '+({wait:'Mode Attente',tempo:'Mode Tempo',listen:'Mode Écoute'}[S.mode])+' · '+Math.round(S.speed*100)+' %',W/2,y,maxW,fs*1.5);
+    if(W<600&&H>W*1.2){ctx.fillStyle='#ffd166';wrapText('Astuce : tourne le téléphone pour avoir un clavier plus grand.',W/2,y+8,maxW,fs*1.5);}
   }
 }
 
@@ -658,7 +725,7 @@ function frame(t){const dt=Math.min(.1,(t-last)/1000);last=t;update(dt);draw();h
 const touchMap=new Map();
 function keyAt(x,y){
   const L=getLayout(),kbH=kbHeight(),hitY=H-kbH;if(y<hitY) return null;
-  if(y<hitY+kbH*.62) for(let m=SONG.lo;m<=SONG.hi;m++){const k=L.map[m];if(k&&k.black&&x>=k.x&&x<k.x+k.w) return m;}
+  if(y<hitY+kbH*.62) for(let m=L.lo;m<=L.hi;m++){const k=L.map[m];if(k&&k.black&&x>=k.x&&x<k.x+k.w) return m;}
   for(const m of L.whites){const k=L.map[m];if(x>=k.x&&x<k.x+k.w) return m;}
   return null;
 }
@@ -688,9 +755,8 @@ function saveSettings(){const {hands,simp,mode,speed,names,notation,accomp,appSo
 function matchLevel(){return LEVELS.findIndex(l=>l.hands===S.hands&&l.simp===S.simp&&l.mode===S.mode&&Math.abs(l.speed-S.speed)<.001);}
 function applyLevel(i){const l=LEVELS[i];Object.assign(S,{hands:l.hands,simp:l.simp,mode:l.mode,speed:l.speed,level:i});}
 
-const levelsEl=$('levels');
-LEVELS.forEach((l,i)=>{const b=document.createElement('button');b.textContent=l.name;b.dataset.i=i;
-  b.onclick=()=>{applyLevel(i);saveSettings();refreshUI();resetRun();};levelsEl.appendChild(b);});
+document.querySelectorAll('.levels').forEach(box=>LEVELS.forEach((l,i)=>{const b=document.createElement('button');b.textContent=l.name;b.dataset.i=i;
+  b.onclick=()=>{applyLevel(i);saveSettings();refreshUI();resetRun();};box.appendChild(b);}));
 
 document.querySelectorAll('.seg[data-key]').forEach(seg=>{
   seg.querySelectorAll('button').forEach(b=>b.onclick=()=>{
@@ -708,7 +774,12 @@ $('toM').onchange=e=>{S.to=Math.max(1,parseInt(e.target.value)||1);if(S.to<S.fro
 $('optNames').onchange=e=>{S.names=e.target.checked;saveSettings();};
 $('optAccomp').onchange=e=>{S.accomp=e.target.checked;saveSettings();};
 $('optSound').onchange=e=>{S.appSound=e.target.checked;saveSettings();};
-$('moreBtn').onclick=()=>{const s=$('settings');s.classList.toggle('hidden');$('moreBtn').textContent=s.classList.contains('hidden')?'Réglages ▾':'Réglages ▴';};
+function toggleSettings(force){
+  const s=$('settings'),hide=force!==undefined?!force:!s.classList.contains('hidden');
+  s.classList.toggle('hidden',hide);$('moreBtn').querySelector('.full').textContent=hide?'Réglages ▾':'Réglages ▴';
+}
+$('moreBtn').onclick=e=>{e.currentTarget.blur();toggleSettings();};
+$('closeSettings').onclick=()=>toggleSettings(false);
 $('rangeChip').onclick=()=>{S.from=1;S.to=9999;refreshUI();resetRun();};
 $('playBtn').onclick=e=>{e.currentTarget.blur();togglePlay();};
 $('restartBtn').onclick=e=>{e.currentTarget.blur();resetRun();};
@@ -733,7 +804,7 @@ $('fileIn').onchange=async e=>{
 };
 
 function refreshUI(){
-  levelsEl.querySelectorAll('button').forEach(b=>b.classList.toggle('active',+b.dataset.i===S.level));
+  document.querySelectorAll('.levels button').forEach(b=>b.classList.toggle('active',+b.dataset.i===S.level));
   document.querySelectorAll('.seg[data-key]').forEach(seg=>seg.querySelectorAll('button').forEach(b=>
     b.classList.toggle('active',String(S[seg.dataset.key])===b.dataset.v)));
   $('speed').value=Math.round(S.speed*100);$('speedLbl').textContent=Math.round(S.speed*100)+' %';
