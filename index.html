@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>Piano Pas à Pas</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js" integrity="sha512-XMVd28F1oH/O71fzwBnV7HucLxVwtxf26XV8P4wPk26EDxuGZ91N8bsOttmnomcCD3CS5ZMRL50H0GgOHvegtg==" crossorigin="anonymous" referrerpolicy="no-referrer" defer></script>
 <style>
 :root{
   --bg:#0f1220; --panel:#171b2e; --panel2:#20264a; --line:#2c3358;
@@ -178,6 +178,7 @@ kbd{background:var(--panel2);border:1px solid var(--line);border-radius:4px;padd
     <div class="field">Lecture des PDF et photos par l'IA (OpenRouter)
       <input type="password" id="orKey" placeholder="Clé OpenRouter (sk-or-…)" autocomplete="off" spellcheck="false">
       <select id="orModel"></select>
+      <span class="credit" id="orBalance"></span>
       <span class="credit">La clé reste sur cet appareil et n'est envoyée qu'à OpenRouter. L'IA peut se tromper : écoute le résultat en mode 🎧 Écoute.</span>
     </div>
     <div class="help">
@@ -195,7 +196,7 @@ kbd{background:var(--panel2);border:1px solid var(--line);border-radius:4px;padd
   <h2>📄 Lecture de la partition</h2>
   <p id="aiText"></p>
   <div id="aiBar"><div></div></div>
-  <div class="actions"><button class="btn ghost" id="aiCancel">Annuler</button></div>
+  <div class="actions"><button class="btn primary" id="aiGo" style="display:none">Lancer la lecture</button><button class="btn ghost" id="aiCancel">Annuler</button></div>
 </div></div>
 <div id="toast"></div>
 
@@ -405,11 +406,32 @@ function b64ToBuf(s){const bin=atob(s),b=new Uint8Array(bin.length);for(let i=0;
    2. l'image est envoyée au modèle choisi, qui renvoie les mesures dans une notation simple (JSON) ;
    3. l'app assemble les pages, vérifie que chaque mesure a le bon nombre de temps et corrige si besoin.
    La clé reste dans le navigateur de l'appareil et n'est envoyée qu'à OpenRouter. */
-const AI_MODELS=[
-  ['anthropic/claude-opus-5.5','Claude Opus 5.5 (recommandé, ~0,10 $/page)'],
-  ['anthropic/claude-sonnet-5.5','Claude Sonnet 5.5 (moitié prix, ~0,05 $/page)'],
-  ['anthropic/claude-fable-5.1','Claude Fable 5.1 (le plus précis, ~0,25 $/page)'],
+const AI_MODELS=[ // [identifiant, nom, coût estimé par page en $]
+  ['anthropic/claude-opus-5.5','Claude Opus 5.5 (recommandé, ~0,10 $/page)',.10],
+  ['anthropic/claude-sonnet-5.5','Claude Sonnet 5.5 (moitié prix, ~0,05 $/page)',.05],
+  ['anthropic/claude-fable-5.1','Claude Fable 5.1 (le plus précis, ~0,25 $/page)',.25],
 ];
+const usd=v=>v.toLocaleString('fr-FR',{minimumFractionDigits:2,maximumFractionDigits:2})+' $';
+// Solde OpenRouter : crédits achetés − crédits consommés (ou plafond restant de la clé)
+async function orBalance(){
+  const key=store.get('orKey','');if(!key) return null;
+  const h={Authorization:'Bearer '+key};
+  try{
+    const r=await fetch('https://openrouter.ai/api/v1/credits',{headers:h});
+    if(r.ok){const d=(await r.json()).data;if(d&&typeof d.total_credits==='number') return {left:d.total_credits-(d.total_usage||0)};}
+    const r2=await fetch('https://openrouter.ai/api/v1/key',{headers:h});
+    if(r2.status===401) return {error:'clé refusée'};
+    if(r2.ok){const d=(await r2.json()).data||{};return {left:typeof d.limit_remaining==='number'?d.limit_remaining:null,used:d.usage};}
+    return {error:'solde indisponible'};
+  }catch(e){return {error:'pas de connexion'};}
+}
+function balanceText(b){
+  if(!b) return '';
+  if(b.error) return 'Solde OpenRouter : '+b.error;
+  if(typeof b.left==='number') return 'Solde OpenRouter : '+usd(b.left);
+  return 'Solde OpenRouter : non communiqué'+(typeof b.used==='number'?' (déjà dépensé avec cette clé : '+usd(b.used)+')':'');
+}
+async function refreshBalance(){const el=document.getElementById('orBalance');if(!el) return;el.textContent=store.get('orKey','')?'Solde OpenRouter : …':'';const b=await orBalance();el.textContent=balanceText(b);}
 const AI_MAX_PAGES=12;
 let pdfjsReady=null;
 function loadPdfJs(){
@@ -417,6 +439,8 @@ function loadPdfJs(){
   pdfjsReady=new Promise((res,rej)=>{
     const s=document.createElement('script');
     s.src='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+    // empreinte officielle : le navigateur refuse le fichier s'il a été modifié
+    s.integrity='sha512-q+4liFwdPC/bNdhUpZx6aXDx/h77yEQtn4I1slHydcbZK34nLaR3cAeYSJshoxIOq3mjEf7xJE8YWIUHMn+oCQ==';s.crossOrigin='anonymous';s.referrerPolicy='no-referrer';
     s.onload=()=>{window.pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';res(window.pdfjsLib);};
     s.onerror=()=>{pdfjsReady=null;rej(new Error('impossible de charger le lecteur de PDF (connexion ?)'));};
     document.head.appendChild(s);
@@ -502,7 +526,7 @@ async function aiReadPage(img,page,total,ctx,signal){
   const key=store.get('orKey',''),model=store.get('orModel',AI_MODELS[0][0]);
   const r=await fetch('https://openrouter.ai/api/v1/chat/completions',{method:'POST',signal,
     headers:{'Authorization':'Bearer '+key,'Content-Type':'application/json','X-Title':'Piano Pas a Pas'},
-    body:JSON.stringify({model,temperature:0,max_tokens:16000,
+    body:JSON.stringify({model,temperature:0,max_tokens:16000,usage:{include:true},
       messages:[{role:'user',content:[{type:'text',text:aiPrompt(page,total,ctx,img.systems.length)},
         ...[img.overview,...img.systems].map(url=>({type:'image_url',image_url:{url}}))]}]})});
   if(!r.ok){
@@ -511,7 +535,8 @@ async function aiReadPage(img,page,total,ctx,signal){
     if(r.status===402) throw new Error('crédit OpenRouter insuffisant');
     throw new Error(`OpenRouter a répondu ${r.status}${msg?' : '+msg:''}`);
   }
-  const j=await r.json();let c=j.choices?.[0]?.message?.content||'';
+  const j=await r.json();if(ctx.cost&&typeof j.usage?.cost==='number') ctx.cost.total+=j.usage.cost;
+  let c=j.choices?.[0]?.message?.content||'';
   if(Array.isArray(c)) c=c.map(p=>p.text||'').join('');
   const a=c.indexOf('{'),b=c.lastIndexOf('}');
   if(a<0||b<a) throw new Error(`page ${page} : réponse de l'IA illisible`);
@@ -582,6 +607,17 @@ function aiProgress(text,frac){
   document.querySelector('#aiBar div').style.width=Math.round((frac||0)*100)+'%';
 }
 function aiHide(){document.getElementById('aiModal').classList.add('hidden');}
+// Fenêtre de confirmation (réutilise la fenêtre de progression) : renvoie true si on lance la lecture
+function aiConfirm(text){
+  return new Promise(res=>{
+    const go=document.getElementById('aiGo'),cancel=document.getElementById('aiCancel'),bar=document.getElementById('aiBar');
+    document.getElementById('aiModal').classList.remove('hidden');
+    const t=document.getElementById('aiText');t.textContent=text;t.style.whiteSpace='pre-line';
+    go.style.display='';bar.style.display='none';
+    const done=v=>{go.style.display='none';bar.style.display='';go.onclick=null;cancel.onclick=()=>{if(aiAbort) aiAbort.abort();};res(v);};
+    go.onclick=()=>done(true);cancel.onclick=()=>done(false);
+  });
+}
 async function importWithAI(file){
   if(!store.get('orKey','')){
     toggleSettings(true);
@@ -592,8 +628,17 @@ async function importWithAI(file){
   try{
     aiProgress('Préparation des pages…',0);
     const imgs=await fileToPageImages(file);
+    // estimation du coût + solde, et confirmation avant de dépenser quoi que ce soit
+    const model=AI_MODELS.find(m=>m[0]===store.get('orModel',AI_MODELS[0][0]))||AI_MODELS[0];
+    const est=imgs.length*model[2];
+    aiProgress('Vérification du solde OpenRouter…',0);
+    const bal=await orBalance();
+    const low=bal&&typeof bal.left==='number'&&bal.left<est*1.5;
+    const ok=await aiConfirm(`${imgs.length} page${imgs.length>1?'s':''} à lire avec ${model[1].replace(/ \(.*$/,'')}.\n`+
+      `Coût estimé : environ ${usd(est)} (entre ${usd(est*.7)} et ${usd(est*1.4)}).\n`+balanceText(bal)+(low?'\n⚠︎ Le solde risque d\'être juste.':''));
+    if(!ok){aiHide();return;}
     const all={title:null,composer:null,tempo:null,time:null,measures:[]};
-    const ctx={measures:0,time:[4,4],key:0};
+    const ctx={measures:0,time:[4,4],key:0,cost:{total:0}};
     for(let i=0;i<imgs.length;i++){
       aiProgress(`L'IA lit la page ${i+1} sur ${imgs.length}… (environ 30 s à 1 min par page)`,i/imgs.length);
       const d=await aiReadPage(imgs[i],i+1,imgs.length,ctx,aiAbort.signal);
@@ -616,7 +661,9 @@ async function importWithAI(file){
     const imps=store.get('imports',[]);imps.push({id:song.id,title,type:'ai',data:all});store.set('imports',imps.slice(-10));
     store.set('song',song.id);S.from=1;S.to=9999;layoutKey='';fillSongs();refreshUI();resetRun();
     toast(`« ${title} » lu par l'IA : ${song.measureStarts.length} mesures, ${song.notes.length} notes.`+
-      (fixed.length?` ${fixed.length} mesure${fixed.length>1?'s':''} ajustée${fixed.length>1?'s':''} automatiquement, à vérifier en écoutant : ${fixed.slice(0,8).join(', ')}${fixed.length>8?'…':''}.`:' Toutes les mesures ont le bon nombre de temps.'),9000);
+      (fixed.length?` ${fixed.length} mesure${fixed.length>1?'s':''} ajustée${fixed.length>1?'s':''} automatiquement, à vérifier en écoutant : ${fixed.slice(0,8).join(', ')}${fixed.length>8?'…':''}.`:' Toutes les mesures ont le bon nombre de temps.')+
+      (ctx.cost.total?` Coût réel : ${usd(ctx.cost.total)}.`:''),10000);
+    refreshBalance();
   }catch(e){
     aiHide();
     toast(e.name==='AbortError'?'Lecture annulée.':'Lecture impossible : '+e.message,8000);
@@ -1210,10 +1257,11 @@ AI_MODELS.forEach(([id,label])=>{const o=document.createElement('option');o.valu
 $('orModel').value=store.get('orModel',AI_MODELS[0][0]);
 $('orModel').onchange=e=>store.set('orModel',e.target.value);
 $('orKey').value=store.get('orKey','');
-$('orKey').onchange=e=>{store.set('orKey',e.target.value.trim());toast(e.target.value.trim()?'Clé OpenRouter enregistrée sur cet appareil.':'Clé OpenRouter effacée.');};
+$('orKey').onchange=e=>{store.set('orKey',e.target.value.trim());toast(e.target.value.trim()?'Clé OpenRouter enregistrée sur cet appareil.':'Clé OpenRouter effacée.');refreshBalance();};
 $('aiCancel').onclick=()=>{if(aiAbort) aiAbort.abort();};
 function toggleSettings(force){
   const s=$('settings'),hide=force!==undefined?!force:!s.classList.contains('hidden');
+  if(!hide) refreshBalance();
   s.classList.toggle('hidden',hide);$('moreBtn').querySelector('.full').textContent=hide?'Réglages ▾':'Réglages ▴';
 }
 $('moreBtn').onclick=e=>{e.currentTarget.blur();toggleSettings();};
