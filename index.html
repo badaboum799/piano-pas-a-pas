@@ -131,6 +131,7 @@ kbd{background:var(--panel2);border:1px solid var(--line);border-radius:4px;padd
   <div class="bar sub">
     <div class="seg levels wide-only"></div>
     <button id="moreBtn" class="btn ghost o3" aria-label="Réglages"><span class="full">Réglages ▾</span><span class="short">⚙︎</span></button>
+    <div class="seg o6" data-key="reverb" title="Acoustique : résonance de la pièce"><button data-v="off">Sec</button><button data-v="room">Salon</button><button data-v="hall">Concert</button></div>
     <button id="rangeChip" class="btn ghost o7" title="Revenir au morceau entier"></button>
     <div class="spacer"></div>
     <div id="hud">
@@ -178,9 +179,6 @@ kbd{background:var(--panel2);border:1px solid var(--line);border-radius:4px;padd
       <div class="row">de <input type="number" id="fromM" min="1"> à <input type="number" id="toM" min="1"> <span id="nMeas"></span></div>
     </div>
     <div class="field">Affichage &amp; son
-      <div class="row">Acoustique
-        <div class="seg" data-key="reverb"><button data-v="off">Sec</button><button data-v="room">Salon</button><button data-v="hall">Salle de concert</button></div>
-      </div>
       <div class="seg" data-key="notation">
         <button data-v="fr">Do Ré Mi</button><button data-v="en">C D E</button>
       </div>
