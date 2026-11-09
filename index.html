@@ -185,6 +185,9 @@ kbd{background:var(--panel2);border:1px solid var(--line);border-radius:4px;padd
       <label class="check"><input type="checkbox" id="optNames"> Afficher les noms des notes</label>
       <label class="check"><input type="checkbox" id="optAccomp"> L'app joue l'autre main</label>
       <label class="check"><input type="checkbox" id="optSound"> Son pour le clavier de l'ordi / l'écran</label>
+      <div class="row">Quand je joue sur mon piano, le son vient :</div>
+      <div class="seg" data-key="midiSound"><button data-v="piano">🎹 du piano</button><button data-v="app">📱 de l'app</button></div>
+      <span class="credit">Avec « de l'app », baisse le volume de ton piano (ou mets-le au minimum) pour n'entendre que le son de l'appareil.</span>
       <span class="credit">Son de piano : Salamander Grand Piano, par Alexander Holm (licence CC-BY 3.0)</span>
     </div>
     <div class="help">
@@ -549,7 +552,7 @@ const LEVELS=[
   {name:'Intermédiaire',hands:'RL',simp:2,mode:'tempo',speed:.8},
   {name:'Avancé',hands:'RL',simp:3,mode:'tempo',speed:1},
 ];
-const S=Object.assign({hands:'R',simp:1,mode:'wait',speed:.6,names:true,notation:'fr',reverb:'room',accomp:true,appSound:true,from:1,to:9999,level:0},
+const S=Object.assign({hands:'R',simp:1,mode:'wait',speed:.6,names:true,notation:'fr',reverb:'room',midiSound:'piano',accomp:true,appSound:true,from:1,to:9999,level:0},
   store.get('settings',{}),{from:1,to:9999});
 const SONGS=SONG_DEFS.map(makeSong);
 for(const imp of store.get('imports',[])){try{
@@ -658,7 +661,12 @@ function update(dt){
 
 function noteOn(midi,vel,src){
   pressed.add(midi);
-  if(src!=='midi'&&S.appSound){voices[midi]?.release();voices[midi]=playTone(midi,null,vel);} // tenue tant que la touche est enfoncée
+  const appPlays=src==='midi'?S.midiSound==='app':S.appSound;
+  if(appPlays){
+    if(src==='midi'){audio();if(actx&&actx.state!=='running'&&!noteOn._warned){noteOn._warned=true;toast("Touche l'écran une fois pour activer le son de l'app.",4000);}}
+    voices[midi]?.release();sustained.delete(midi);
+    voices[midi]=playTone(midi,null,src==='midi'?Math.pow(vel,.85):vel); // tenue tant que la touche est enfoncée ; la force de frappe du piano est respectée
+  }
   if(!R||!R.playing){keyFx[midi]={c:'press',t:performance.now()};return;}
   const now=performance.now();
   if(S.mode==='wait'){
@@ -688,7 +696,17 @@ function noteOn(midi,vel,src){
   }
 }
 const voices={};
-function noteOff(midi){pressed.delete(midi);if(voices[midi]){voices[midi].release();delete voices[midi];}}
+const sustained=new Set();let pedalDown=false;
+function noteOff(midi){
+  pressed.delete(midi);
+  if(!voices[midi]) return;
+  if(pedalDown){sustained.add(midi);return;} // pédale enfoncée : la note continue de sonner
+  voices[midi].release();delete voices[midi];
+}
+function setPedal(down){
+  pedalDown=down;
+  if(!down){for(const m of sustained){if(!pressed.has(m)&&voices[m]){voices[m].release();delete voices[m];}}sustained.clear();}
+}
 function popup(midi,text,color){popups.push({midi,text,color,t:performance.now()});}
 
 /* ================= Fin de partie & adaptation du niveau ================= */
@@ -908,6 +926,7 @@ function onMIDI(e){
   const [st,d1,d2]=e.data,cmd=st&0xf0;
   if(cmd===0x90&&d2>0) noteOn(d1,d2/127,'midi');
   else if(cmd===0x80||(cmd===0x90&&d2===0)) noteOff(d1);
+  else if(cmd===0xB0&&d1===64) setPedal(d2>=64); // pédale de sustain
 }
 statusEl.onclick=initMIDI;
 
@@ -1193,7 +1212,7 @@ window.addEventListener('keyup',e=>{const off=CODE_MAP[e.code];if(off!==undefine
 /* ================= Interface ================= */
 const $=id=>document.getElementById(id);
 function toast(t,ms=2600){const el=$("toast");el.textContent=t;el.classList.add("show");clearTimeout(toast._t);toast._t=setTimeout(()=>el.classList.remove("show"),ms);}
-function saveSettings(){const {hands,simp,prevSimp,mode,speed,names,notation,reverb,accomp,appSound,level}=S;store.set('settings',{hands,simp,prevSimp,mode,speed,names,notation,reverb,accomp,appSound,level});}
+function saveSettings(){const {hands,simp,prevSimp,mode,speed,names,notation,reverb,midiSound,accomp,appSound,level}=S;store.set('settings',{hands,simp,prevSimp,mode,speed,names,notation,reverb,midiSound,accomp,appSound,level});}
 // En mode Écoute, le niveau reste affiché : seuls les mains et la vitesse comptent (la partition est complète).
 function matchLevel(){return LEVELS.findIndex(l=>l.hands===S.hands&&Math.abs(l.speed-S.speed)<.001&&(S.mode==='listen'||(l.simp===S.simp&&l.mode===S.mode)));}
 function applyLevel(i){
@@ -1223,7 +1242,8 @@ document.querySelectorAll('.seg[data-key]').forEach(seg=>{
     else S[key]=key==='simp'?parseInt(b.dataset.v):b.dataset.v;
     S.level=matchLevel();saveSettings();refreshUI();
     if(key==='reverb') applyReverb();
-    else if(key!=='notation') resetRun(); // changer la notation ou l'acoustique ne relance pas la partie
+    else if(key==='midiSound'){if(S.midiSound==='app'){audio();toast("Les notes de ton piano sont maintenant jouées par l'app. Baisse le volume du piano pour n'entendre que l'appareil.",5000);}}
+    else if(key!=='notation'&&key!=='midiSound') resetRun(); // la notation, l'acoustique ou la source du son ne relancent pas la partie
   });
 });
 function setSpeed(v){S.speed=Math.max(.3,Math.min(1.2,Math.round(v*20)/20));S.level=matchLevel();saveSettings();refreshUI();}
