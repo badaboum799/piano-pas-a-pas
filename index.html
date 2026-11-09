@@ -44,8 +44,27 @@ select{max-width:240px}
 .speedctl input[type=range]{flex:1;min-width:90px;max-width:260px;accent-color:var(--accent)}
 .btn.mini{padding:4px 12px;font-size:18px;line-height:1.1}
 .speedval{width:48px;text-align:right;font-weight:700;font-variant-numeric:tabular-nums}
-.settings{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px 22px;padding:12px 14px;background:#13172a;border-bottom:1px solid var(--line)}
+.settings{position:fixed;inset:0;z-index:15;background:var(--bg);overflow-y:auto;-webkit-overflow-scrolling:touch;padding:0 16px calc(28px + env(safe-area-inset-bottom))}
 .settings.hidden{display:none}
+.sheet{max-width:720px;margin:0 auto}
+.sheet-head{position:sticky;top:0;z-index:2;display:flex;align-items:center;justify-content:space-between;padding:calc(14px + env(safe-area-inset-top)) 0 12px;background:var(--bg)}
+.sheet-head h2{margin:0;font-size:22px}
+.sheet-head .btn.primary{min-width:0;padding:9px 18px}
+.card-s{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:4px 16px 4px;margin:0 0 14px}
+.card-s h3{margin:12px 0 2px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.opt{display:flex;align-items:center;justify-content:space-between;gap:10px 16px;padding:13px 0;border-top:1px solid var(--line);flex-wrap:wrap}
+.card-s h3+.opt{border-top:0}
+.opt-txt{flex:1 1 220px;font-size:15px;color:var(--text)}
+.opt-txt small{display:block;font-size:12px;color:var(--muted);margin-top:3px;line-height:1.4}
+.opt .row{display:flex;align-items:center;gap:8px;color:var(--text);font-size:14px}
+.opt input[type=number]{width:70px;padding:6px 8px}
+label.opt{cursor:pointer}
+.switch{appearance:none;-webkit-appearance:none;width:48px;height:28px;border-radius:14px;background:var(--line);position:relative;cursor:pointer;flex:none;margin:0;transition:background .2s}
+.switch::after{content:'';position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:#fff;transition:transform .2s}
+.switch:checked{background:var(--accent)}
+.switch:checked::after{transform:translateX(20px)}
+#impList{padding-bottom:12px}
+.card-s.help p{font-size:13px;color:var(--muted);line-height:1.7;margin:6px 0 12px}
 .field{display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--muted)}
 .field .row{display:flex;align-items:center;gap:8px;color:var(--text)}
 .field input[type=range]{flex:1;accent-color:var(--accent)}
@@ -109,11 +128,8 @@ kbd{background:var(--panel2);border:1px solid var(--line);border-radius:4px;padd
   .speedctl{flex:0 0 auto;min-width:0}
   .btn.mini{padding:3px 10px}
   .speedval{width:auto;font-size:13px}
-  .settings{position:fixed;left:0;right:0;bottom:0;z-index:8;max-height:75dvh;overflow:auto;border-top:1px solid var(--line);border-radius:16px 16px 0 0;
-    box-shadow:0 -12px 40px rgba(0,0,0,.5);grid-template-columns:1fr;padding:14px 14px calc(14px + env(safe-area-inset-bottom))}
   .compact-only{display:flex}
-  button.compact-only{display:block;width:100%}
-  .help{display:none}
+  .card-s.compact-only{display:block}
   #toast{top:auto;bottom:40%}
   .card{padding:16px}
   .big{font-size:40px}
@@ -160,40 +176,50 @@ kbd{background:var(--panel2);border:1px solid var(--line);border-radius:4px;padd
     </div>
   </div>
   </div>
-  <div id="settings" class="settings hidden">
-    <div class="field compact-only">Niveau
-      <div class="seg levels"></div>
-    </div>
-    <div class="field compact-only">Partition personnelle (MusicXML ou MIDI)
-      <div class="row"><label class="btn" for="fileIn">Importer une partition</label></div>
-    </div>
-    <div class="field">Mes partitions importées
+  <div id="settings" class="settings hidden" role="dialog" aria-label="Réglages">
+   <div class="sheet">
+    <header class="sheet-head"><h2>⚙︎ Réglages</h2><button id="closeSettings" class="btn primary">Terminé</button></header>
+
+    <section class="card-s compact-only">
+      <h3>Difficulté</h3>
+      <div class="opt"><div class="opt-txt">Niveau</div><div class="seg levels"></div></div>
+    </section>
+
+    <section class="card-s">
+      <h3>Partition</h3>
+      <div class="opt"><div class="opt-txt">Version de la partition<small>La mélodie seule, une version simplifiée, ou toutes les notes</small></div>
+        <div class="seg" data-key="simp"><button data-v="1">Mélodie</button><button data-v="2">Simplifiée</button><button data-v="3">Complète</button></div></div>
+      <div class="opt"><div class="opt-txt">Mesures à travailler<small>Pour répéter un passage précis (aussi possible par un appui long sur la barre de temps)</small></div>
+        <div class="row">de <input type="number" id="fromM" min="1"> à <input type="number" id="toM" min="1"> <span id="nMeas"></span></div></div>
+    </section>
+
+    <section class="card-s">
+      <h3>Son</h3>
+      <div class="opt"><div class="opt-txt">Quand je joue sur mon piano, le son vient<small>Avec « de l'app », baisse le volume de ton piano pour n'entendre que l'appareil.</small></div>
+        <div class="seg" data-key="midiSound"><button data-v="piano">🎹 du piano</button><button data-v="app">📱 de l'app</button></div></div>
+      <label class="opt"><div class="opt-txt">L'app joue l'autre main<small>Quand tu travailles une seule main</small></div><input type="checkbox" id="optAccomp" class="switch"></label>
+      <label class="opt"><div class="opt-txt">Son des touches de l'écran et du clavier de l'ordi</div><input type="checkbox" id="optSound" class="switch"></label>
+    </section>
+
+    <section class="card-s">
+      <h3>Affichage</h3>
+      <div class="opt"><div class="opt-txt">Nom des notes</div>
+        <div class="seg" data-key="notation"><button data-v="fr">Do Ré Mi</button><button data-v="en">C D E</button></div></div>
+      <label class="opt"><div class="opt-txt">Afficher les noms sur les notes et sur le clavier</div><input type="checkbox" id="optNames" class="switch"></label>
+    </section>
+
+    <section class="card-s">
+      <h3>Mes partitions</h3>
+      <div class="opt"><div class="opt-txt">Ajouter une partition<small>Fichier MusicXML (.mxl, .musicxml) ou MIDI (.mid)</small></div><label class="btn" for="fileIn">Importer une partition</label></div>
       <div id="impList"></div>
-    </div>
-    <div class="field">Partition
-      <div class="seg" data-key="simp">
-        <button data-v="1">Mélodie</button><button data-v="2">Simplifiée</button><button data-v="3">Complète</button>
-      </div>
-    </div>
-    <div class="field">Mesures à travailler
-      <div class="row">de <input type="number" id="fromM" min="1"> à <input type="number" id="toM" min="1"> <span id="nMeas"></span></div>
-    </div>
-    <div class="field">Affichage &amp; son
-      <div class="seg" data-key="notation">
-        <button data-v="fr">Do Ré Mi</button><button data-v="en">C D E</button>
-      </div>
-      <label class="check"><input type="checkbox" id="optNames"> Afficher les noms des notes</label>
-      <label class="check"><input type="checkbox" id="optAccomp"> L'app joue l'autre main</label>
-      <label class="check"><input type="checkbox" id="optSound"> Son pour le clavier de l'ordi / l'écran</label>
-      <div class="row">Quand je joue sur mon piano, le son vient :</div>
-      <div class="seg" data-key="midiSound"><button data-v="piano">🎹 du piano</button><button data-v="app">📱 de l'app</button></div>
-      <span class="credit">Avec « de l'app », baisse le volume de ton piano (ou mets-le au minimum) pour n'entendre que le son de l'appareil.</span>
-      <span class="credit">Son de piano : Salamander Grand Piano, par Alexander Holm (licence CC-BY 3.0)</span>
-    </div>
-    <div class="help">
-      Sans piano : touche les touches à l'écran, ou utilise le clavier de l'ordi (AZERTY) : <kbd>Q</kbd><kbd>S</kbd><kbd>D</kbd><kbd>F</kbd><kbd>G</kbd><kbd>H</kbd><kbd>J</kbd><kbd>K</kbd> = <span id="scaleLbl"></span>, <kbd>Z</kbd><kbd>E</kbd><kbd>T</kbd><kbd>Y</kbd><kbd>U</kbd> = dièses, <kbd>←</kbd><kbd>→</kbd> = octave (<span id="octLbl"></span>), <kbd>Espace</kbd> = jouer / pause.
-    </div>
-    <button id="closeSettings" class="btn primary compact-only">Fermer les réglages</button>
+    </section>
+
+    <section class="card-s help">
+      <h3>Aide</h3>
+      <p>Sans piano : touche les touches à l'écran, ou utilise le clavier de l'ordi (AZERTY) : <kbd>Q</kbd><kbd>S</kbd><kbd>D</kbd><kbd>F</kbd><kbd>G</kbd><kbd>H</kbd><kbd>J</kbd><kbd>K</kbd> = <span id="scaleLbl"></span>, <kbd>Z</kbd><kbd>E</kbd><kbd>T</kbd><kbd>Y</kbd><kbd>U</kbd> = dièses, <kbd>←</kbd><kbd>→</kbd> = octave (<span id="octLbl"></span>), <kbd>Espace</kbd> = jouer / pause, <kbd>Début</kbd> = revenir au début.</p>
+      <p class="credit">Son de piano : Salamander Grand Piano, par Alexander Holm (licence CC-BY 3.0).</p>
+    </section>
+   </div>
   </div>
   <div id="timeline">
     <button id="toStart" class="btn" title="Revenir au début (touche Début)"><span class="full">⏮ Début</span><span class="short">⏮</span></button>
@@ -1198,6 +1224,7 @@ cv.addEventListener('pointerup',endTouch);cv.addEventListener('pointercancel',en
 
 const CODE_MAP={KeyA:0,KeyW:1,KeyS:2,KeyE:3,KeyD:4,KeyF:5,KeyT:6,KeyG:7,KeyY:8,KeyH:9,KeyU:10,KeyJ:11,KeyK:12,KeyO:13,KeyL:14,KeyP:15,Semicolon:16};
 window.addEventListener('keydown',e=>{
+  if(!$('settings').classList.contains('hidden')){if(e.code==='Escape') toggleSettings(false);return;}
   if(e.target.tagName==='INPUT'||e.target.tagName==='SELECT') return;
   if(e.code==='Space'){e.preventDefault();togglePlay();return;}
   if(e.code==='Home'){e.preventDefault();goToStart();return;}
@@ -1259,7 +1286,8 @@ $('optSound').onchange=e=>{S.appSound=e.target.checked;saveSettings();};
 try{localStorage.removeItem('ppap.orKey');localStorage.removeItem('ppap.orModel');}catch(e){}
 function toggleSettings(force){
   const s=$('settings'),hide=force!==undefined?!force:!s.classList.contains('hidden');
-  s.classList.toggle('hidden',hide);$('moreBtn').classList.toggle('on',!hide);
+  if(!hide&&R&&R.playing) togglePlay(); // on met en pause pendant les réglages
+  s.classList.toggle('hidden',hide);if(!hide) s.scrollTop=0;$('moreBtn').classList.toggle('on',!hide);
 }
 $('moreBtn').onclick=e=>{e.currentTarget.blur();toggleSettings();};
 $('closeSettings').onclick=()=>toggleSettings(false);
