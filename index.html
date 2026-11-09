@@ -182,6 +182,9 @@ kbd{background:var(--panel2);border:1px solid var(--line);border-radius:4px;padd
       <div class="row">de <input type="number" id="fromM" min="1"> à <input type="number" id="toM" min="1"> <span id="nMeas"></span></div>
     </div>
     <div class="field">Affichage &amp; son
+      <div class="row">Acoustique
+        <div class="seg" data-key="reverb"><button data-v="off">Sec</button><button data-v="room">Salon</button><button data-v="hall">Salle de concert</button></div>
+      </div>
       <div class="seg" data-key="notation">
         <button data-v="fr">Do Ré Mi</button><button data-v="en">C D E</button>
       </div>
@@ -776,7 +779,7 @@ const LEVELS=[
   {name:'Intermédiaire',hands:'RL',simp:2,mode:'tempo',speed:.8},
   {name:'Avancé',hands:'RL',simp:3,mode:'tempo',speed:1},
 ];
-const S=Object.assign({hands:'R',simp:1,mode:'wait',speed:.6,names:true,notation:'fr',accomp:true,appSound:true,from:1,to:9999,level:0},
+const S=Object.assign({hands:'R',simp:1,mode:'wait',speed:.6,names:true,notation:'fr',reverb:'room',accomp:true,appSound:true,from:1,to:9999,level:0},
   store.get('settings',{}),{from:1,to:9999});
 const SONGS=SONG_DEFS.map(makeSong);
 for(const imp of store.get('imports',[])){try{
@@ -979,7 +982,31 @@ function showActions(card,sugg){
 }
 
 /* ================= Son (Web Audio) ================= */
-let actx=null,master=null;
+let actx=null,master=null,dryGain=null,reverbNode=null,reverbWet=null;
+/* ----- Acoustique de salle : réverbération calculée (aucun fichier à télécharger) -----
+   Une « réponse de salle » est fabriquée : quelques premiers échos, puis une traîne de bruit qui
+   décroît et s'assombrit, comme dans une vraie pièce. */
+const REVERBS={off:{wet:0,decay:0},room:{wet:.27,decay:1.5},hall:{wet:.34,decay:2.8}};
+function makeIR(ctx,decay){
+  const sr=ctx.sampleRate,pre=Math.round(.018*sr),len=pre+Math.round(decay*sr),buf=ctx.createBuffer(2,len,sr);
+  for(let ch=0;ch<2;ch++){
+    const d=buf.getChannelData(ch);let lp=0;
+    for(let i=pre;i<len;i++){
+      const t=(i-pre)/sr,damp=Math.min(.94,.25+.69*t/decay);   // les aigus s'éteignent plus vite
+      lp+=(Math.random()*2-1-lp)*(1-damp);
+      d[i]=lp*Math.exp(-6.9*t/decay);                         // -60 dB à la fin
+    }
+    for(const [ms,g] of [[7,.6],[13,.45],[21,.35],[29,.3],[41,.22]]) d[pre+Math.round((ms+(ch?3:0))*sr/1000)]+=g*(ch?-1:1); // premiers échos
+  }
+  return buf;
+}
+function applyReverb(){
+  if(!actx) return;
+  const p=REVERBS[S.reverb]||REVERBS.room;
+  if(p.wet>0) reverbNode.buffer=makeIR(actx,p.decay);
+  reverbWet.gain.setTargetAtTime(p.wet,actx.currentTime,.05);
+  dryGain.gain.setTargetAtTime(1-p.wet*.35,actx.currentTime,.05);
+}
 function audio(){
   if(!actx){
     const AC=window.AudioContext||window.webkitAudioContext;
@@ -987,7 +1014,12 @@ function audio(){
       actx=new AC();
       // bus général : un compresseur évite la saturation quand plusieurs notes sonnent ensemble
       const comp=actx.createDynamicsCompressor();comp.threshold.value=-8;comp.knee.value=12;comp.ratio.value=3;comp.attack.value=.005;comp.release.value=.2; // ne retient que les pointes, pour garder les nuances
-      master=actx.createGain();master.gain.value=.75;master.connect(comp).connect(actx.destination);
+      master=actx.createGain();master.gain.value=.75;
+      // deux chemins : le son direct, et le son « dans la salle » (réverbération)
+      dryGain=actx.createGain();reverbNode=actx.createConvolver();reverbWet=actx.createGain();
+      master.connect(dryGain).connect(comp);master.connect(reverbNode).connect(reverbWet).connect(comp);
+      comp.connect(actx.destination);
+      applyReverb();
       decodeSamples();
     }
   }
@@ -1397,7 +1429,7 @@ window.addEventListener('keyup',e=>{const off=CODE_MAP[e.code];if(off!==undefine
 /* ================= Interface ================= */
 const $=id=>document.getElementById(id);
 function toast(t,ms=2600){const el=$("toast");el.textContent=t;el.classList.add("show");clearTimeout(toast._t);toast._t=setTimeout(()=>el.classList.remove("show"),ms);}
-function saveSettings(){const {hands,simp,prevSimp,mode,speed,names,notation,accomp,appSound,level}=S;store.set('settings',{hands,simp,prevSimp,mode,speed,names,notation,accomp,appSound,level});}
+function saveSettings(){const {hands,simp,prevSimp,mode,speed,names,notation,reverb,accomp,appSound,level}=S;store.set('settings',{hands,simp,prevSimp,mode,speed,names,notation,reverb,accomp,appSound,level});}
 // En mode Écoute, le niveau reste affiché : seuls les mains et la vitesse comptent (la partition est complète).
 function matchLevel(){return LEVELS.findIndex(l=>l.hands===S.hands&&Math.abs(l.speed-S.speed)<.001&&(S.mode==='listen'||(l.simp===S.simp&&l.mode===S.mode)));}
 function applyLevel(i){
@@ -1426,7 +1458,8 @@ document.querySelectorAll('.seg[data-key]').forEach(seg=>{
     if(key==='mode') setMode(b.dataset.v);
     else S[key]=key==='simp'?parseInt(b.dataset.v):b.dataset.v;
     S.level=matchLevel();saveSettings();refreshUI();
-    if(key!=='notation') resetRun(); // changer la notation ne relance pas la partie
+    if(key==='reverb') applyReverb();
+    else if(key!=='notation') resetRun(); // changer la notation ou l'acoustique ne relance pas la partie
   });
 });
 function setSpeed(v){S.speed=Math.max(.3,Math.min(1.2,Math.round(v*20)/20));S.level=matchLevel();saveSettings();refreshUI();}
