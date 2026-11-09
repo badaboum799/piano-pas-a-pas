@@ -196,11 +196,6 @@ kbd{background:var(--panel2);border:1px solid var(--line);border-radius:4px;padd
     <button id="toStart" class="btn" title="Revenir au début (touche Début)"><span class="full">⏮ Début</span><span class="short">⏮</span></button>
     <div id="tlBar" title="Toucher une section pour y aller · glisser pour avancer · appui long pour travailler la section"><div id="tlSegs"></div><div id="tlFill"></div><div id="tlHead"></div></div>
     <span id="tlPos"></span>
-    <div id="hud">
-      <span>Précision <b id="hAcc">–</b></span>
-      <span>Notes <b id="hNotes">–</b></span>
-      <span>Série <b id="hCombo">0</b></span>
-    </div>
   </div>
   <div id="stage"><canvas id="cv"></canvas></div>
 </div>
@@ -740,7 +735,7 @@ function finish(){
   const stars=acc>=90?3:acc>=75?2:acc>=50?1:0;
   const card=document.getElementById('resCard');
   card.innerHTML=`<h2>${title}</h2><div class="stars">${'★'.repeat(stars)}${'☆'.repeat(3-stars)}</div>
-    <div class="big">${acc} %</div>
+    <div class="big">${acc} %</div><p style="margin-top:-4px;font-weight:600;color:var(--text)">de précision</p>
     <p>${R.hits}/${total} notes justes · ${R.wrong} fausse${R.wrong>1?'s':''} note${R.wrong>1?'s':''}${S.mode!=='wait'?` · ${R.misses} manquée${R.misses>1?'s':''} · ${R.perfect} parfaites`:''} · meilleure série ${R.maxCombo}</p>
     ${R.full?`<p>Record pour ce réglage : ${Math.max(acc,prevBest??0)} %${prevBest!==undefined&&acc>prevBest?' (nouveau record !)':''}</p>`:`<p>Mesures ${R.from}–${R.to}</p>`}
     ${worst.length?`<p>Mesures à retravailler : ${worst.join(', ')}</p>`:''}
@@ -1104,7 +1099,6 @@ function drawBadge(){
 }
 
 /* ================= HUD ================= */
-const hAcc=document.getElementById('hAcc'),hNotes=document.getElementById('hNotes'),hCombo=document.getElementById('hCombo');
 /* ----- Barre de temps : sections du morceau, position, retour au début ----- */
 const tl={bar:document.getElementById('tlBar'),segs:document.getElementById('tlSegs'),fill:document.getElementById('tlFill'),head:document.getElementById('tlHead'),pos:document.getElementById('tlPos'),cur:-1};
 const secEnd=sec=>sec.end+1<SONG.measureStarts.length?SONG.measureStarts[sec.end+1]:SONG.length;
@@ -1157,11 +1151,6 @@ tl.bar.addEventListener('pointerup',tlUp);tl.bar.addEventListener('pointercancel
 document.getElementById('toStart').onclick=e=>{e.currentTarget.blur();goToStart();};
 function hud(){
   if(!R) return;
-  const done=R.hits+R.misses;
-  const a=done+R.wrong?Math.round(100*R.hits/(done+R.wrong))+' %':'–';
-  if(hAcc.textContent!==a) hAcc.textContent=a;
-  const nt=`${R.hits}/${R.play.length}`;if(hNotes.textContent!==nt) hNotes.textContent=nt;
-  const c=String(R.combo);if(hCombo.textContent!==c) hCombo.textContent=c;
   const pb=Math.max(0,Math.min(SONG.length,R.seekBeat!==undefined&&R.pos<R.seekBeat?R.seekBeat:R.pos)),pc=(pb/SONG.length*100).toFixed(2)+'%';
   tl.fill.style.width=pc;tl.head.style.left=pc;
   const ci=sectionAt(pb);
