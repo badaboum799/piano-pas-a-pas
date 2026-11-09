@@ -31,7 +31,7 @@ select{max-width:240px}
 .btn.primary{background:var(--accent);border-color:var(--accent);color:#0b0e1c;font-weight:700;min-width:110px}
 .btn.ghost{background:transparent}
 .seg{display:inline-flex;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:2px}
-.seg button{font:inherit;font-size:13px;color:var(--muted);background:transparent;border:0;border-radius:8px;padding:7px 11px;cursor:pointer;white-space:nowrap}
+.seg button{font:inherit;font-size:13px;color:var(--muted);background:transparent;border:0;border-radius:8px;padding:7px 10px;cursor:pointer;white-space:nowrap}
 .seg button.active{background:var(--accent);color:#0b0e1c;font-weight:700}
 /* chaque mode a sa couleur, reprise dans le badge affiché sur le clavier */
 .seg[data-key=mode] button[data-v=wait].active{background:#7c8cff}
@@ -61,7 +61,8 @@ select{max-width:240px}
 .help{font-size:12px;color:var(--muted);line-height:1.5;grid-column:1/-1}
 kbd{background:var(--panel2);border:1px solid var(--line);border-radius:4px;padding:0 5px;font-size:11px}
 #hud{display:flex;gap:16px;font-size:13px;color:var(--muted);white-space:nowrap}
-#hud b{color:var(--text);font-size:15px}
+#hud b{color:var(--text);font-size:14px}
+#timeline #hud{gap:12px;font-size:12px}
 #timeline{display:flex;align-items:center;gap:8px;padding:6px 10px;background:#13172a;border-bottom:1px solid var(--line)}
 #toStart{padding:5px 10px;font-size:14px}
 #tlBar{position:relative;flex:1;height:30px;border-radius:8px;overflow:hidden;background:var(--panel2);cursor:pointer;touch-action:none}
@@ -75,6 +76,8 @@ kbd{background:var(--panel2);border:1px solid var(--line);border-radius:4px;padd
 #stage{position:relative;flex:1;min-height:200px}
 #stage{overflow:hidden}
 #cv{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#moreBtn{font-size:20px;line-height:1;padding:6px 10px}
+#moreBtn.on{background:var(--panel2);border-color:var(--accent);color:var(--accent)}
 #rangeChip{display:none}
 #rangeChip.show{display:inline-block}
 .modal{position:fixed;inset:0;background:rgba(5,7,15,.65);display:flex;align-items:center;justify-content:center;z-index:10;padding:16px}
@@ -129,16 +132,13 @@ kbd{background:var(--panel2);border:1px solid var(--line);border-radius:4px;padd
     <input type="file" id="fileIn" accept=".xml,.musicxml,.mxl,.mid,.midi,application/vnd.recordare.musicxml+xml,application/vnd.recordare.musicxml,audio/midi,audio/x-midi" style="display:none">
   </header>
   <div class="bar sub">
-    <div class="seg levels wide-only"></div>
-    <button id="moreBtn" class="btn ghost o3" aria-label="Réglages"><span class="full">Réglages ▾</span><span class="short">⚙︎</span></button>
-    <div class="seg o6" data-key="reverb" title="Acoustique : résonance de la pièce"><button data-v="off">Sec</button><button data-v="room">Salon</button><button data-v="hall">Concert</button></div>
+    <button id="moreBtn" class="btn ghost o3" aria-label="Réglages" title="Réglages">⚙︎</button>
+    <div class="ctl wide-only"><span class="lbl">Difficulté</span><div class="seg levels"></div></div>
+    <div class="ctl o6"><span class="lbl">Son</span>
+      <div class="seg" data-key="reverb" title="Acoustique : résonance de la pièce"><button data-v="off">Sec</button><button data-v="room">Salon</button><button data-v="hall">Concert</button></div>
+    </div>
     <button id="rangeChip" class="btn ghost o7" title="Revenir au morceau entier"></button>
     <div class="spacer"></div>
-    <div id="hud">
-      <span>Précision <b id="hAcc">–</b></span>
-      <span>Notes <b id="hNotes">–</b></span>
-      <span>Série <b id="hCombo">0</b></span>
-    </div>
     <button id="playBtn" class="btn primary o5">▶ Jouer</button>
   </div>
   <div class="bar ctrl">
@@ -196,6 +196,11 @@ kbd{background:var(--panel2);border:1px solid var(--line);border-radius:4px;padd
     <button id="toStart" class="btn" title="Revenir au début (touche Début)"><span class="full">⏮ Début</span><span class="short">⏮</span></button>
     <div id="tlBar" title="Toucher une section pour y aller · glisser pour avancer · appui long pour travailler la section"><div id="tlSegs"></div><div id="tlFill"></div><div id="tlHead"></div></div>
     <span id="tlPos"></span>
+    <div id="hud">
+      <span>Précision <b id="hAcc">–</b></span>
+      <span>Notes <b id="hNotes">–</b></span>
+      <span>Série <b id="hCombo">0</b></span>
+    </div>
   </div>
   <div id="stage"><canvas id="cv"></canvas></div>
 </div>
@@ -1245,7 +1250,7 @@ $('optSound').onchange=e=>{S.appSound=e.target.checked;saveSettings();};
 try{localStorage.removeItem('ppap.orKey');localStorage.removeItem('ppap.orModel');}catch(e){}
 function toggleSettings(force){
   const s=$('settings'),hide=force!==undefined?!force:!s.classList.contains('hidden');
-  s.classList.toggle('hidden',hide);$('moreBtn').querySelector('.full').textContent=hide?'Réglages ▾':'Réglages ▴';
+  s.classList.toggle('hidden',hide);$('moreBtn').classList.toggle('on',!hide);
 }
 $('moreBtn').onclick=e=>{e.currentTarget.blur();toggleSettings();};
 $('closeSettings').onclick=()=>toggleSettings(false);
