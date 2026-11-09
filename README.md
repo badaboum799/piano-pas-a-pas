@@ -10,8 +10,6 @@ Prototype d'application d'apprentissage du piano : les partitions deviennent des
 
 Import de partitions au format MusicXML (`.musicxml`, `.mxl`) ou MIDI (`.mid`). Exemples : `exemple-deux-mains.musicxml`, `exemple-deux-mains.mid`.
 
-Les **PDF et photos de partitions** peuvent être lus par une IA (via OpenRouter) : ajoutez votre clé OpenRouter dans les réglages. La clé reste dans le navigateur de l'appareil.
-
 ## Crédits
 
 Son de piano : Salamander Grand Piano (Yamaha C5) par Alexander Holm, sous licence [Creative Commons BY 3.0](https://creativecommons.org/licenses/by/3.0/). Les 30 échantillons MP3 du dossier `sounds/piano` proviennent de la version distribuée par [Tone.js](https://github.com/Tonejs/audio).

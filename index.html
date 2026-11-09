@@ -58,10 +58,6 @@ select{max-width:240px}
 .imp span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .imp .btn{padding:4px 10px;font-size:12px}
 .btn.danger{color:#ff9aa8;border-color:rgba(255,93,115,.4)}
-#orKey{font:inherit;font-size:14px;color:var(--text);background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px 12px;width:100%;-webkit-user-select:text;user-select:text}
-#orModel{max-width:100%}
-#aiBar{height:6px;background:var(--line);border-radius:3px;overflow:hidden;margin-top:12px}
-#aiBar div{height:100%;width:0;background:var(--accent);transition:width .4s}
 .help{font-size:12px;color:var(--muted);line-height:1.5;grid-column:1/-1}
 kbd{background:var(--panel2);border:1px solid var(--line);border-radius:4px;padding:0 5px;font-size:11px}
 #hud{display:flex;gap:16px;font-size:13px;color:var(--muted);white-space:nowrap}
@@ -130,7 +126,7 @@ kbd{background:var(--panel2);border:1px solid var(--line);border-radius:4px;padd
     <div class="spacer"></div>
     <select id="songSel" class="o2" aria-label="Morceau"></select>
     <label class="btn ghost wide-only" for="fileIn">Importer une partition</label>
-    <input type="file" id="fileIn" accept=".xml,.musicxml,.mxl,.mid,.midi,.pdf,application/vnd.recordare.musicxml+xml,application/vnd.recordare.musicxml,audio/midi,audio/x-midi,application/pdf,image/*" style="display:none">
+    <input type="file" id="fileIn" accept=".xml,.musicxml,.mxl,.mid,.midi,application/vnd.recordare.musicxml+xml,application/vnd.recordare.musicxml,audio/midi,audio/x-midi" style="display:none">
   </header>
   <div class="bar sub">
     <div class="seg levels wide-only"></div>
@@ -167,7 +163,7 @@ kbd{background:var(--panel2);border:1px solid var(--line);border-radius:4px;padd
     <div class="field compact-only">Niveau
       <div class="seg levels"></div>
     </div>
-    <div class="field compact-only">Partition personnelle (MusicXML, MIDI, PDF ou photo)
+    <div class="field compact-only">Partition personnelle (MusicXML ou MIDI)
       <div class="row"><label class="btn" for="fileIn">Importer une partition</label></div>
     </div>
     <div class="field">Mes partitions importées
@@ -193,14 +189,7 @@ kbd{background:var(--panel2);border:1px solid var(--line);border-radius:4px;padd
       <label class="check"><input type="checkbox" id="optSound"> Son pour le clavier de l'ordi / l'écran</label>
       <span class="credit">Son de piano : Salamander Grand Piano, par Alexander Holm (licence CC-BY 3.0)</span>
     </div>
-    <div class="field">Lecture des PDF et photos par l'IA (OpenRouter)
-      <input type="password" id="orKey" placeholder="Clé OpenRouter (sk-or-…)" autocomplete="off" spellcheck="false">
-      <select id="orModel"></select>
-      <span class="credit" id="orBalance"></span>
-      <span class="credit">La clé reste sur cet appareil et n'est envoyée qu'à OpenRouter. L'IA peut se tromper : écoute le résultat en mode 🎧 Écoute.</span>
-    </div>
     <div class="help">
-      <b>Mode Attente</b> : le morceau s'arrête jusqu'à ce que tu joues la bonne note. <b>Mode Tempo</b> : le morceau avance tout seul, il faut jouer en rythme. <b>Mode Écoute</b> : l'app joue toute la musique en rythme ; tu peux écouter ou jouer par-dessus (ton jeu est quand même noté).<br>
       Sans piano : touche les touches à l'écran, ou utilise le clavier de l'ordi (AZERTY) : <kbd>Q</kbd><kbd>S</kbd><kbd>D</kbd><kbd>F</kbd><kbd>G</kbd><kbd>H</kbd><kbd>J</kbd><kbd>K</kbd> = <span id="scaleLbl"></span>, <kbd>Z</kbd><kbd>E</kbd><kbd>T</kbd><kbd>Y</kbd><kbd>U</kbd> = dièses, <kbd>←</kbd><kbd>→</kbd> = octave (<span id="octLbl"></span>), <kbd>Espace</kbd> = jouer / pause.
     </div>
     <button id="closeSettings" class="btn primary compact-only">Fermer les réglages</button>
@@ -214,12 +203,6 @@ kbd{background:var(--panel2);border:1px solid var(--line);border-radius:4px;padd
 </div>
 
 <div id="results" class="modal hidden"><div class="card" id="resCard"></div></div>
-<div id="aiModal" class="modal hidden"><div class="card">
-  <h2>📄 Lecture de la partition</h2>
-  <p id="aiText"></p>
-  <div id="aiBar"><div></div></div>
-  <div class="actions"><button class="btn primary" id="aiGo" style="display:none">Lancer la lecture</button><button class="btn ghost" id="aiCancel">Annuler</button></div>
-</div></div>
 <div id="toast"></div>
 
 <script>
@@ -493,148 +476,7 @@ function parseMIDI(buf,title){
 function bufToB64(buf){const b=new Uint8Array(buf);let s='';for(let i=0;i<b.length;i+=8192) s+=String.fromCharCode.apply(null,b.subarray(i,i+8192));return btoa(s);}
 function b64ToBuf(s){const bin=atob(s),b=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++) b[i]=bin.charCodeAt(i);return b.buffer;}
 
-/* ================= Lecture d'un PDF ou d'une photo de partition par l'IA (via OpenRouter) =================
-   1. chaque page est transformée en image dans le navigateur (PDF.js) ;
-   2. l'image est envoyée au modèle choisi, qui renvoie les mesures dans une notation simple (JSON) ;
-   3. l'app assemble les pages, vérifie que chaque mesure a le bon nombre de temps et corrige si besoin.
-   La clé reste dans le navigateur de l'appareil et n'est envoyée qu'à OpenRouter. */
-const AI_MODELS=[ // [identifiant, nom, coût estimé par page en $]
-  ['anthropic/claude-opus-5.5','Claude Opus 5.5 (recommandé, ~0,10 $/page)',.10],
-  ['anthropic/claude-sonnet-5.5','Claude Sonnet 5.5 (moitié prix, ~0,05 $/page)',.05],
-  ['anthropic/claude-fable-5.1','Claude Fable 5.1 (le plus précis, ~0,25 $/page)',.25],
-];
-const usd=v=>v.toLocaleString('fr-FR',{minimumFractionDigits:2,maximumFractionDigits:2})+' $';
-// Solde OpenRouter : crédits achetés − crédits consommés (ou plafond restant de la clé)
-async function orBalance(){
-  const key=store.get('orKey','');if(!key) return null;
-  const h={Authorization:'Bearer '+key};
-  try{
-    const r=await fetch('https://openrouter.ai/api/v1/credits',{headers:h});
-    if(r.ok){const d=(await r.json()).data;if(d&&typeof d.total_credits==='number') return {left:d.total_credits-(d.total_usage||0)};}
-    const r2=await fetch('https://openrouter.ai/api/v1/key',{headers:h});
-    if(r2.status===401) return {error:'clé refusée'};
-    if(r2.ok){const d=(await r2.json()).data||{};return {left:typeof d.limit_remaining==='number'?d.limit_remaining:null,used:d.usage};}
-    return {error:'solde indisponible'};
-  }catch(e){return {error:'pas de connexion'};}
-}
-function balanceText(b){
-  if(!b) return '';
-  if(b.error) return 'Solde OpenRouter : '+b.error;
-  if(typeof b.left==='number') return 'Solde OpenRouter : '+usd(b.left);
-  return 'Solde OpenRouter : non communiqué'+(typeof b.used==='number'?' (déjà dépensé avec cette clé : '+usd(b.used)+')':'');
-}
-async function refreshBalance(){const el=document.getElementById('orBalance');if(!el) return;el.textContent=store.get('orKey','')?'Solde OpenRouter : …':'';const b=await orBalance();el.textContent=balanceText(b);}
-const AI_MAX_PAGES=12;
-let pdfjsReady=null;
-function loadPdfJs(){
-  if(pdfjsReady) return pdfjsReady;
-  pdfjsReady=new Promise((res,rej)=>{
-    const s=document.createElement('script');
-    s.src='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
-    // empreinte officielle : le navigateur refuse le fichier s'il a été modifié
-    s.integrity='sha512-q+4liFwdPC/bNdhUpZx6aXDx/h77yEQtn4I1slHydcbZK34nLaR3cAeYSJshoxIOq3mjEf7xJE8YWIUHMn+oCQ==';s.crossOrigin='anonymous';s.referrerPolicy='no-referrer';
-    s.onload=()=>{window.pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';res(window.pdfjsLib);};
-    s.onerror=()=>{pdfjsReady=null;rej(new Error('impossible de charger le lecteur de PDF (connexion ?)'));};
-    document.head.appendChild(s);
-  });
-  return pdfjsReady;
-}
-// Repère les lignes de la partition (une ligne = portée main droite + portée main gauche) en cherchant
-// les lignes horizontales qui traversent presque toute la page, groupées par 5 (une portée).
-// Renvoie les bandes [haut, bas] à découper, ou null si la page ne ressemble pas à une partition de piano.
-function findSystems(c){
-  const W=c.width,H=c.height,d=c.getContext('2d').getImageData(0,0,W,H).data,rows=new Float32Array(H);
-  for(let y=0;y<H;y++){let dark=0,n=0;for(let x=0;x<W;x+=2,n++){const i=(y*W+x)*4;if(d[i]+d[i+1]+d[i+2]<450) dark++;}rows[y]=dark/n;}
-  const lines=[];
-  for(let y=0;y<H;y++) if(rows[y]>.35){let y2=y;while(y2+1<H&&rows[y2+1]>.35) y2++;lines.push((y+y2)/2);y=y2;}
-  const staves=[];
-  for(let i=0;i+4<lines.length;){
-    const g=lines.slice(i,i+5),gaps=g.slice(1).map((v,k)=>v-g[k]),avg=(g[4]-g[0])/4;
-    if(avg>3&&gaps.every(x=>Math.abs(x-avg)<avg*.35)){staves.push({top:g[0],bottom:g[4],sp:avg});i+=5;}else i++;
-  }
-  if(staves.length<2||staves.length%2) return null;
-  const sys=[];for(let k=0;k<staves.length;k+=2) sys.push({top:staves[k].top,bottom:staves[k+1].bottom,sp:(staves[k].sp+staves[k+1].sp)/2});
-  return sys.map((s,k)=>{
-    const prev=sys[k-1],next=sys[k+1];
-    const top=prev?(prev.bottom+s.top)/2:s.top-6*s.sp,bot=next?(s.bottom+next.top)/2:s.bottom+6*s.sp;
-    return [Math.max(0,Math.floor(top)),Math.min(H,Math.ceil(bot))];
-  });
-}
-function toJpeg(c,q=.88){return c.toDataURL('image/jpeg',q);}
-function scaledCopy(src,w,y0=0,y1=src.height){
-  const h=Math.round((y1-y0)*w/src.width),c=document.createElement('canvas');c.width=w;c.height=h;
-  const g=c.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,w,h);g.drawImage(src,0,y0,src.width,y1-y0,0,0,w,h);return c;
-}
-// Une page -> une vue d'ensemble légère + chaque ligne de la partition agrandie (bien plus lisible pour l'IA)
-function pageImages(c){
-  const crops=findSystems(c);
-  return {overview:toJpeg(scaledCopy(c,crops?640:1600),crops?.8:.88),systems:crops?crops.map(([y0,y1])=>toJpeg(scaledCopy(c,1600,y0,y1))):[]};
-}
-async function fileToPageImages(file){
-  if(/^image\//.test(file.type)||/\.(png|jpe?g|webp|heic)$/i.test(file.name)){ // photo d'une partition
-    const url=URL.createObjectURL(file);
-    try{
-      const img=await new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=()=>rej(new Error('image illisible'));i.src=url;});
-      const c=document.createElement('canvas');c.width=img.width;c.height=img.height;
-      const g=c.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,c.width,c.height);g.drawImage(img,0,0);
-      return [pageImages(c)];
-    }finally{URL.revokeObjectURL(url);}
-  }
-  const lib=await loadPdfJs();
-  const pdf=await lib.getDocument({data:await file.arrayBuffer()}).promise;
-  if(pdf.numPages>AI_MAX_PAGES) throw new Error(`PDF trop long (${pdf.numPages} pages, ${AI_MAX_PAGES} au maximum)`);
-  const out=[];
-  for(let i=1;i<=pdf.numPages;i++){
-    const page=await pdf.getPage(i),vp=page.getViewport({scale:2400/page.getViewport({scale:1}).width});
-    const c=document.createElement('canvas');c.width=Math.round(vp.width);c.height=Math.round(vp.height);
-    const g=c.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,c.width,c.height);
-    await page.render({canvasContext:g,viewport:vp}).promise;
-    out.push(pageImages(c));
-  }
-  return out;
-}
-function aiPrompt(page,total,ctx,nSys){
-  return `You are an expert music engraver. Transcribe the piano sheet music of page ${page} of ${total} into JSON.
-${nSys?`The first image is the whole page at low resolution, only for the overview (title, tempo, clefs, time and key signatures). The next ${nSys} images are the ${nSys} systems of the page (treble + bass staff), top to bottom, zoomed in: read the notes from these zoomed images, system by system, measure by measure.`:'The image is the whole page.'}
-${ctx.measures?`Context from the previous pages: ${ctx.measures} measures already transcribed; time signature in force: ${ctx.time[0]}/${ctx.time[1]}; key signature in force: ${ctx.key} (number of sharps, negative for flats). Continue from there.`:'This is the first page.'}
-
-Output ONLY a minified JSON object on a single line: no markdown, no comments, no indentation, no line breaks, no spaces outside the voice strings. Do not explain anything. Format:
-{"title": string or null, "composer": string or null, "tempo": quarter-note BPM or null, "time": [beats, beatType] in force at the start of this page, "key": key signature in force at the start of this page (sharps, negative for flats),
- "measures": [{"time": [b, bt] only if it changes here, "key": n only if it changes here, "pickup": true only for an incomplete first measure, "rh": ["voice", ...], "lh": ["voice", ...]}]}
-
-Rules:
-- One entry per measure, in reading order, for every system on the page. Do not expand repeats: transcribe what is printed.
-- "rh" = upper (treble) staff, "lh" = lower (bass) staff, as printed.
-- A voice is a string of space-separated events. A note is a pitch with octave in scientific notation (middle C = C4), e.g. "C4", "F#3", "Bb5". A chord joins pitches with "+", e.g. "C4+E4+G4". A rest is "R". Every event ends with ":" and its duration in quarter notes: 4 whole, 3 dotted half, 2 half, 1.5 dotted quarter, 1 quarter, 0.75 dotted eighth, 0.5 eighth, 0.25 sixteenth, 0.125 thirty-second; tuplets as fractions, e.g. "1/3" for a triplet eighth.
-- Add "~" right after the duration when the note is tied to the next note of the same pitch (e.g. "D5:3~"); ties can cross bar lines.
-- Write SOUNDING pitches: apply the key signature, accidentals (valid until the end of the measure) and octave lines (8va / 8vb).
-- Look carefully at augmentation dots, beams and flags: they change durations.
-- Each voice must add up exactly to the measure length (3 for 3/4, 3 for 6/8, 4 for 4/4…), except a pickup measure. When a staff has independent rhythms (e.g. a held note under moving eighths), use several voices; fill gaps with rests.
-- Dynamics: when a dynamic marking (pp, p, mp, mf, f, ff…) appears in a measure, add "dyn": "p" (etc.) to that measure; when a crescendo or diminuendo hairpin starts in a measure, add "hairpin": "cresc" or "dim". Omit these keys otherwise.
-- Ignore fingerings, pedal marks, lyrics, chord symbols and grace notes.
-- If the page contains no music, return {"measures": []}.
-Example measure in 3/4: {"dyn":"mp","rh":["D5:2~ D5:0.5 C5:0.5"],"lh":["F3+A3+D4:3"]}`;
-}
-async function aiReadPage(img,page,total,ctx,signal){
-  const key=store.get('orKey',''),model=store.get('orModel',AI_MODELS[0][0]);
-  const r=await fetch('https://openrouter.ai/api/v1/chat/completions',{method:'POST',signal,
-    headers:{'Authorization':'Bearer '+key,'Content-Type':'application/json','X-Title':'Piano Pas a Pas'},
-    body:JSON.stringify({model,temperature:0,max_tokens:16000,usage:{include:true},
-      messages:[{role:'user',content:[{type:'text',text:aiPrompt(page,total,ctx,img.systems.length)},
-        ...[img.overview,...img.systems].map(url=>({type:'image_url',image_url:{url}}))]}]})});
-  if(!r.ok){
-    let msg='';try{msg=(await r.json()).error?.message||'';}catch(e){}
-    if(r.status===401) throw new Error('clé OpenRouter refusée : vérifie-la dans les réglages');
-    if(r.status===402) throw new Error('crédit OpenRouter insuffisant');
-    throw new Error(`OpenRouter a répondu ${r.status}${msg?' : '+msg:''}`);
-  }
-  const j=await r.json();if(ctx.cost&&typeof j.usage?.cost==='number') ctx.cost.total+=j.usage.cost;
-  let c=j.choices?.[0]?.message?.content||'';
-  if(Array.isArray(c)) c=c.map(p=>p.text||'').join('');
-  const a=c.indexOf('{'),b=c.lastIndexOf('}');
-  if(a<0||b<a) throw new Error(`page ${page} : réponse de l'IA illisible`);
-  try{return JSON.parse(c.slice(a,b+1));}catch(e){throw new Error(`page ${page} : réponse de l'IA incomplète`);}
-}
+/* ================= Relecture des partitions importées autrefois via l'IA (format interne) ================= */
 // "C#4+E4:1.5~ R:0.5" -> [{pitches:[61,64],dur:1.5,tie:true},{pitches:[],dur:.5}]
 function parseAiVoice(v){
   const out=[];
@@ -696,76 +538,6 @@ function buildAiSong(data,title){
     beatsPerMeasure:time[0]*4/time[1],measureStarts,notes,length:t,imported:true});
   return {song,fixed};
 }
-let aiAbort=null;
-function aiProgress(text,frac){
-  const m=document.getElementById('aiModal');m.classList.remove('hidden');
-  document.getElementById('aiText').textContent=text;
-  document.querySelector('#aiBar div').style.width=Math.round((frac||0)*100)+'%';
-}
-function aiHide(){document.getElementById('aiModal').classList.add('hidden');}
-// Fenêtre de confirmation (réutilise la fenêtre de progression) : renvoie true si on lance la lecture
-function aiConfirm(text){
-  return new Promise(res=>{
-    const go=document.getElementById('aiGo'),cancel=document.getElementById('aiCancel'),bar=document.getElementById('aiBar');
-    document.getElementById('aiModal').classList.remove('hidden');
-    const t=document.getElementById('aiText');t.textContent=text;t.style.whiteSpace='pre-line';
-    go.style.display='';bar.style.display='none';
-    const done=v=>{go.style.display='none';bar.style.display='';go.onclick=null;cancel.onclick=()=>{if(aiAbort) aiAbort.abort();};res(v);};
-    go.onclick=()=>done(true);cancel.onclick=()=>done(false);
-  });
-}
-async function importWithAI(file){
-  if(!store.get('orKey','')){
-    toggleSettings(true);
-    toast("Pour lire un PDF ou une photo, ajoute d'abord ta clé OpenRouter dans les réglages (rubrique « Lecture des PDF par l'IA »).",7000);
-    setTimeout(()=>$('orKey').focus(),300);return;
-  }
-  aiAbort=new AbortController();
-  try{
-    aiProgress('Préparation des pages…',0);
-    const imgs=await fileToPageImages(file);
-    // estimation du coût + solde, et confirmation avant de dépenser quoi que ce soit
-    const model=AI_MODELS.find(m=>m[0]===store.get('orModel',AI_MODELS[0][0]))||AI_MODELS[0];
-    const est=imgs.length*model[2];
-    aiProgress('Vérification du solde OpenRouter…',0);
-    const bal=await orBalance();
-    const low=bal&&typeof bal.left==='number'&&bal.left<est*1.5;
-    const ok=await aiConfirm(`${imgs.length} page${imgs.length>1?'s':''} à lire avec ${model[1].replace(/ \(.*$/,'')}.\n`+
-      `Coût estimé : environ ${usd(est)} (entre ${usd(est*.7)} et ${usd(est*1.4)}).\n`+balanceText(bal)+(low?'\n⚠︎ Le solde risque d\'être juste.':''));
-    if(!ok){aiHide();return;}
-    const all={title:null,composer:null,tempo:null,time:null,measures:[]};
-    const ctx={measures:0,time:[4,4],key:0,cost:{total:0}};
-    for(let i=0;i<imgs.length;i++){
-      aiProgress(`L'IA lit la page ${i+1} sur ${imgs.length}… (environ 30 s à 1 min par page)`,i/imgs.length);
-      const d=await aiReadPage(imgs[i],i+1,imgs.length,ctx,aiAbort.signal);
-      const ms=Array.isArray(d.measures)?d.measures:[];
-      all.title=all.title||d.title||null;all.composer=all.composer||d.composer||null;all.tempo=all.tempo||d.tempo||null;
-      const pageTime=Array.isArray(d.time)&&d.time.length===2?d.time:ctx.time;
-      if(ms.length){
-        if(!all.time) all.time=pageTime;
-        else if(!ms[0].time&&(pageTime[0]!==ctx.time[0]||pageTime[1]!==ctx.time[1])) ms[0].time=pageTime;
-      }
-      ctx.time=pageTime;if(typeof d.key==='number') ctx.key=d.key;
-      for(const m of ms){if(Array.isArray(m.time)) ctx.time=m.time;if(typeof m.key==='number') ctx.key=m.key;}
-      all.measures.push(...ms);ctx.measures=all.measures.length;
-    }
-    aiHide();
-    if(!all.measures.length) throw new Error("l'IA n'a trouvé aucune mesure sur ce document");
-    const title=all.title||file.name.replace(/\.[^.]+$/,'');
-    const {song,fixed}=buildAiSong(all,title);
-    SONGS.push(song);SONG=song;
-    const imps=store.get('imports',[]);imps.push({id:song.id,title,type:'ai',data:all});store.set('imports',imps.slice(-10));
-    store.set('song',song.id);S.from=1;S.to=9999;layoutKey='';fillSongs();refreshUI();resetRun();
-    toast(`« ${title} » lu par l'IA : ${song.measureStarts.length} mesures, ${song.notes.length} notes.`+
-      (fixed.length?` ${fixed.length} mesure${fixed.length>1?'s':''} ajustée${fixed.length>1?'s':''} automatiquement, à vérifier en écoutant : ${fixed.slice(0,8).join(', ')}${fixed.length>8?'…':''}.`:' Toutes les mesures ont le bon nombre de temps.')+
-      (ctx.cost.total?` Coût réel : ${usd(ctx.cost.total)}.`:''),10000);
-    refreshBalance();
-  }catch(e){
-    aiHide();
-    toast(e.name==='AbortError'?'Lecture annulée.':'Lecture impossible : '+e.message,8000);
-  }finally{aiAbort=null;}
-}
-
 /* ================= Stockage local (optionnel) ================= */
 const store={
   get(k,d){try{const v=localStorage.getItem('ppap.'+k);return v?JSON.parse(v):d;}catch(e){return d;}},
@@ -1471,15 +1243,10 @@ $('toM').onchange=e=>{S.to=Math.max(1,parseInt(e.target.value)||1);if(S.to<S.fro
 $('optNames').onchange=e=>{S.names=e.target.checked;saveSettings();};
 $('optAccomp').onchange=e=>{S.accomp=e.target.checked;saveSettings();};
 $('optSound').onchange=e=>{S.appSound=e.target.checked;saveSettings();};
-AI_MODELS.forEach(([id,label])=>{const o=document.createElement('option');o.value=id;o.textContent=label;$('orModel').appendChild(o);});
-$('orModel').value=store.get('orModel',AI_MODELS[0][0]);
-$('orModel').onchange=e=>store.set('orModel',e.target.value);
-$('orKey').value=store.get('orKey','');
-$('orKey').onchange=e=>{store.set('orKey',e.target.value.trim());toast(e.target.value.trim()?'Clé OpenRouter enregistrée sur cet appareil.':'Clé OpenRouter effacée.');refreshBalance();};
-$('aiCancel').onclick=()=>{if(aiAbort) aiAbort.abort();};
+// la lecture par IA a été retirée : on efface une éventuelle clé OpenRouter restée sur l'appareil
+try{localStorage.removeItem('ppap.orKey');localStorage.removeItem('ppap.orModel');}catch(e){}
 function toggleSettings(force){
   const s=$('settings'),hide=force!==undefined?!force:!s.classList.contains('hidden');
-  if(!hide) refreshBalance();
   s.classList.toggle('hidden',hide);$('moreBtn').querySelector('.full').textContent=hide?'Réglages ▾':'Réglages ▴';
 }
 $('moreBtn').onclick=e=>{e.currentTarget.blur();toggleSettings();};
@@ -1510,7 +1277,7 @@ function renderImports(){
 }
 function deleteImports(list){
   const msg=list.length===1?`Supprimer « ${list[0].title} » de cet appareil ?`:`Supprimer les ${list.length} partitions importées de cet appareil ?`;
-  if(!confirm(msg+'\n(Pour une partition lue par l\'IA, il faudrait payer une nouvelle lecture pour la récupérer.)')) return;
+  if(!confirm(msg)) return;
   const ids=new Set(list.map(s=>s.id));
   store.set('imports',store.get('imports',[]).filter(i=>!ids.has(i.id)));
   const bests=store.get('best',{});for(const k in bests) if(ids.has(k.split('|')[0])) delete bests[k];store.set('best',bests);
@@ -1526,14 +1293,16 @@ if(/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel
 $('fileIn').onchange=async e=>{
   const f=e.target.files[0];e.target.value='';if(!f) return;
   const title=f.name.replace(/\.[^.]+$/,'');
-  if(/\.pdf$/i.test(f.name)||/^image\//.test(f.type)||/\.(png|jpe?g|webp|heic)$/i.test(f.name)){importWithAI(f);return;}
+  if(/\.pdf$/i.test(f.name)||/^image\//.test(f.type)||/\.(png|jpe?g|webp|heic)$/i.test(f.name)){
+    toast("Les PDF et les photos ne contiennent qu'une image de la partition : l'app ne peut pas les lire. Cherche la version MusicXML ou MIDI du morceau (par ex. sur musescore.com).",7000);return;
+  }
   try{
     let song,saved;
     if(/\.midi?$/i.test(f.name)){
       const buf=await f.arrayBuffer();
       song=parseMIDI(buf,title);saved={id:song.id,title,type:'midi',b64:bufToB64(buf)};
     }else{
-      if(!/\.(mxl|musicxml|xml)$/i.test(f.name)) throw new Error('format non reconnu (formats acceptés : MusicXML .mxl/.musicxml, MIDI .mid, PDF ou photo)');
+      if(!/\.(mxl|musicxml|xml)$/i.test(f.name)) throw new Error('format non reconnu (formats acceptés : MusicXML .mxl/.musicxml ou MIDI .mid)');
       const xml=await readScoreFile(f);
       song=parseMusicXML(xml,title);saved={id:song.id,title:song.title,xml};
     }
