@@ -891,11 +891,11 @@ function showActions(card,sugg){
 }
 
 /* ================= Son (Web Audio) ================= */
-let actx=null,master=null,dryGain=null,reverbNode=null,reverbWet=null;
+let actx=null,master=null,G=null; // G : la chaîne audio (son direct + réverbération)
 /* ----- Acoustique de salle : réverbération calculée (aucun fichier à télécharger) -----
    Une « réponse de salle » est fabriquée : quelques premiers échos, puis une traîne de bruit qui
    décroît et s'assombrit, comme dans une vraie pièce. */
-const REVERBS={off:{wet:0,decay:0},room:{wet:.27,decay:1.5},hall:{wet:.34,decay:2.8}};
+const REVERBS={off:{wet:0,dry:1,decay:0},room:{wet:.6,dry:.9,decay:1.6},hall:{wet:.95,dry:.75,decay:3.2}};
 function makeIR(ctx,decay){
   const sr=ctx.sampleRate,pre=Math.round(.018*sr),len=pre+Math.round(decay*sr),buf=ctx.createBuffer(2,len,sr);
   for(let ch=0;ch<2;ch++){
@@ -909,25 +909,34 @@ function makeIR(ctx,decay){
   }
   return buf;
 }
-function applyReverb(){
-  if(!actx) return;
-  const p=REVERBS[S.reverb]||REVERBS.room;
-  if(p.wet>0) reverbNode.buffer=makeIR(actx,p.decay);
-  reverbWet.gain.setTargetAtTime(p.wet,actx.currentTime,.05);
-  dryGain.gain.setTargetAtTime(1-p.wet*.35,actx.currentTime,.05);
+// Chaîne audio : notes -> master -> (son direct + salle) -> compresseur -> haut-parleurs
+function makeGraph(ctx){
+  const comp=ctx.createDynamicsCompressor();comp.threshold.value=-8;comp.knee.value=12;comp.ratio.value=3;comp.attack.value=.005;comp.release.value=.2; // ne retient que les pointes, pour garder les nuances
+  const master=ctx.createGain(),dry=ctx.createGain(),wet=ctx.createGain();master.gain.value=.75;
+  master.connect(dry).connect(comp);wet.connect(comp);comp.connect(ctx.destination);
+  return {ctx,master,dry,wet,conv:null,ir:{}};
 }
+// Changer d'acoustique : on crée un nouveau module de salle à chaque fois
+// (Safari, donc l'iPad, refuse qu'on remplace la salle d'un module existant).
+function setReverb(g,preset){
+  const p=REVERBS[preset]||REVERBS.room;
+  if(g.conv){try{g.conv.disconnect();}catch(e){}g.conv=null;}
+  if(p.wet>0){
+    g.conv=g.ctx.createConvolver();
+    g.conv.buffer=g.ir[preset]||(g.ir[preset]=makeIR(g.ctx,p.decay));
+    g.master.connect(g.conv);g.conv.connect(g.wet);
+  }
+  const t=g.ctx.currentTime;
+  g.wet.gain.cancelScheduledValues(t);g.wet.gain.setTargetAtTime(p.wet,t,.05);
+  g.dry.gain.cancelScheduledValues(t);g.dry.gain.setTargetAtTime(p.dry,t,.05);
+}
+function applyReverb(){if(G) setReverb(G,S.reverb);}
 function audio(){
   if(!actx){
     const AC=window.AudioContext||window.webkitAudioContext;
     if(AC){
       actx=new AC();
-      // bus général : un compresseur évite la saturation quand plusieurs notes sonnent ensemble
-      const comp=actx.createDynamicsCompressor();comp.threshold.value=-8;comp.knee.value=12;comp.ratio.value=3;comp.attack.value=.005;comp.release.value=.2; // ne retient que les pointes, pour garder les nuances
-      master=actx.createGain();master.gain.value=.75;
-      // deux chemins : le son direct, et le son « dans la salle » (réverbération)
-      dryGain=actx.createGain();reverbNode=actx.createConvolver();reverbWet=actx.createGain();
-      master.connect(dryGain).connect(comp);master.connect(reverbNode).connect(reverbWet).connect(comp);
-      comp.connect(actx.destination);
+      G=makeGraph(actx);master=G.master;
       applyReverb();
       decodeSamples();
     }
