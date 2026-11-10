@@ -44,7 +44,7 @@ select{max-width:240px}
 .speedctl input[type=range]{flex:1;min-width:90px;max-width:260px;accent-color:var(--accent)}
 .btn.mini{padding:4px 12px;font-size:18px;line-height:1.1}
 .speedval{width:48px;text-align:right;font-weight:700;font-variant-numeric:tabular-nums}
-.settings{position:fixed;inset:0;z-index:15;background:var(--bg);overflow-y:auto;-webkit-overflow-scrolling:touch;padding:0 16px calc(28px + env(safe-area-inset-bottom))}
+.settings{position:fixed;inset:0;z-index:15;background:var(--bg);overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;padding:0 16px calc(28px + env(safe-area-inset-bottom))}
 .settings.hidden{display:none}
 .sheet{max-width:720px;margin:0 auto}
 /* écran large (iPad en paysage, ordinateur) : réglages sur deux colonnes */
@@ -55,9 +55,7 @@ select{max-width:240px}
   #settings .card-s.compact-only{display:none}
   /* bibliothèque : plus large, morceaux sur deux colonnes, « Reprendre » sur toute la largeur */
   #library .sheet{max-width:1120px}
-  #library .lib-list{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-  #library .recent-row{overflow:visible}
-  #library .rcard{flex:1 1 0}
+  #library .lib-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
   #library .lib-empty{grid-column:1/-1}
 }
 .sheet-head{position:sticky;top:0;z-index:2;display:flex;align-items:center;justify-content:space-between;padding:calc(14px + env(safe-area-inset-top)) 0 12px;background:var(--bg)}
@@ -118,13 +116,14 @@ kbd{background:var(--panel2);border:1px solid var(--line);border-radius:4px;padd
 /* sur les pages Bibliothèque et Réglages, les messages s'affichent en bas pour ne pas cacher la recherche */
 body:has(.settings:not(.hidden)) #toast{top:auto;bottom:calc(24px + env(safe-area-inset-bottom))}
 .lib-title{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:4px 0 8px}
-.recent-row{display:flex;gap:10px;overflow-x:auto;padding-bottom:6px;margin-bottom:14px}
-.rcard{flex:0 0 190px;display:flex;align-items:center;gap:10px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 12px;cursor:pointer;min-width:0}
+/* « Reprendre » : les fiches passent à la ligne au lieu de déborder (jamais de défilement horizontal) */
+.recent-row{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px;margin-bottom:14px}
+.rcard{display:flex;align-items:center;gap:10px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 12px;cursor:pointer;min-width:0}
 .rcard div{min-width:0}
 .rcard b{display:block;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .rcard span{font-size:12px;color:var(--muted)}
 .lib-list{display:flex;flex-direction:column;gap:8px}
-.lrow{display:flex;align-items:center;gap:12px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 12px;cursor:pointer}
+.lrow{min-width:0;display:flex;align-items:center;gap:12px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 12px;cursor:pointer}
 .lrow.cur{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset}
 .dbadge{flex:none;width:42px;height:42px;border-radius:12px;display:flex;align-items:center;justify-content:center;font:800 18px -apple-system,sans-serif;color:#0b0e1c;border:0;cursor:pointer;position:relative}
 .dbadge.sm{width:34px;height:34px;font-size:15px;border-radius:10px}
