@@ -10,6 +10,7 @@
 		A10000000000000000000021 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000011 /* AppDelegate.swift */; };
 		A10000000000000000000022 /* WebViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000012 /* WebViewController.swift */; };
 		A10000000000000000000023 /* MIDIBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000013 /* MIDIBridge.swift */; };
+		A10000000000000000000025 /* FolderBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000015 /* FolderBridge.swift */; };
 		A10000000000000000000024 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000014 /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
@@ -18,6 +19,7 @@
 		A10000000000000000000011 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		A10000000000000000000012 /* WebViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebViewController.swift; sourceTree = "<group>"; };
 		A10000000000000000000013 /* MIDIBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MIDIBridge.swift; sourceTree = "<group>"; };
+		A10000000000000000000015 /* FolderBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderBridge.swift; sourceTree = "<group>"; };
 		A10000000000000000000014 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -54,6 +56,7 @@
 				A10000000000000000000011 /* AppDelegate.swift */,
 				A10000000000000000000012 /* WebViewController.swift */,
 				A10000000000000000000013 /* MIDIBridge.swift */,
+				A10000000000000000000015 /* FolderBridge.swift */,
 				A10000000000000000000014 /* Assets.xcassets */,
 			);
 			path = PianoPasAPas;
@@ -131,6 +134,7 @@
 				A10000000000000000000021 /* AppDelegate.swift in Sources */,
 				A10000000000000000000022 /* WebViewController.swift in Sources */,
 				A10000000000000000000023 /* MIDIBridge.swift in Sources */,
+				A10000000000000000000025 /* FolderBridge.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

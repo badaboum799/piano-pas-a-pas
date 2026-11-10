@@ -8,6 +8,7 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
 
     private var webView: WKWebView!
     private let midi = MIDIBridge()
+    private var folder: FolderBridge?
 
     override func loadView() {
         let config = WKWebViewConfiguration()
@@ -18,6 +19,7 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
         let content = WKUserContentController()
         content.addUserScript(WKUserScript(source: Self.webMIDIShim, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         content.add(self, name: "midi")
+        content.add(self, name: "folder")
         config.userContentController = content
 
         webView = WKWebView(frame: .zero, configuration: config)
@@ -33,6 +35,7 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        folder = FolderBridge(webView: webView, presenter: self)
         midi.onDevicesChanged = { [weak self] devices in self?.sendDevices(devices) }
         midi.onMessage = { [weak self] id, bytes in
             self?.webView.evaluateJavaScript("window.__midiIn&&window.__midiIn(\(id),[\(bytes.map(String.init).joined(separator: ","))])")
@@ -57,6 +60,7 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
     // La page demande l'accès MIDI : on lui envoie la liste des claviers.
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
         if message.name == "midi" { midi.refresh(); sendDevices(midi.devices) }
+        if message.name == "folder", let command = message.body as? String { folder?.handle(command) }
     }
 
     // Pas de connexion : petite page d'erreur avec un bouton pour réessayer.
@@ -104,7 +108,7 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
     /// navigateur compatible, et les messages viennent en réalité de CoreMIDI.
     static let webMIDIShim = """
     (function(){
-      if (window.__nativeMIDI) return; window.__nativeMIDI = true;
+      if (window.__nativeMIDI) return; window.__nativeMIDI = true; window.__nativeFolder = true;
       var inputs = new Map(), access = null;
       function makeInput(id, name){
         var p = {id:id, name:name, manufacturer:'', type:'input', state:'connected', connection:'open', onmidimessage:null};

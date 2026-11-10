@@ -125,6 +125,9 @@ kbd{background:var(--panel2);border:1px solid var(--line);border-radius:4px;padd
 .lbtn.fav-on{color:var(--gold)}
 .lib-empty{color:var(--muted);text-align:center;padding:30px 0}
 .lib-hint{display:block;margin:14px 0 4px}
+.folder-bar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:8px 8px 8px 14px;margin-bottom:12px;font-size:13px}
+.folder-bar.hidden{display:none}
+.sheet-head .row{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
 #moreBtn.on{background:var(--panel2);border-color:var(--accent);color:var(--accent)}
 #rangeChip{display:none}
 #rangeChip.show{display:inline-block}
@@ -174,7 +177,7 @@ kbd{background:var(--panel2);border:1px solid var(--line);border-radius:4px;padd
     <div class="spacer"></div>
     <button id="songBtn" class="btn o2 songbtn" aria-label="Choisir un morceau" title="Choisir un morceau dans la bibliothèque"><span>📚</span><span id="songBtnTitle"></span><span id="songBtnDiff" class="dbadge xs"></span><span class="caret">▾</span></button>
     <label class="btn ghost wide-only" for="fileIn">Importer une partition</label>
-    <input type="file" id="fileIn" accept=".xml,.musicxml,.mxl,.mid,.midi,application/vnd.recordare.musicxml+xml,application/vnd.recordare.musicxml,audio/midi,audio/x-midi" style="display:none">
+    <input type="file" id="fileIn" multiple accept=".xml,.musicxml,.mxl,.mid,.midi,application/vnd.recordare.musicxml+xml,application/vnd.recordare.musicxml,audio/midi,audio/x-midi" style="display:none">
   </header>
   <div class="bar sub">
     <button id="moreBtn" class="btn ghost o3" aria-label="Réglages" title="Réglages">⚙︎</button>
@@ -246,7 +249,9 @@ kbd{background:var(--panel2);border:1px solid var(--line);border-radius:4px;padd
   </div>
   <div id="library" class="settings hidden" role="dialog" aria-label="Bibliothèque">
    <div class="sheet">
-    <header class="sheet-head"><h2>📚 Bibliothèque</h2><div class="row"><label class="btn" for="fileIn">＋ Importer</label><button id="closeLib" class="btn primary">Fermer</button></div></header>
+    <header class="sheet-head"><h2>📚 Bibliothèque</h2><div class="row"><label class="btn" for="fileIn" title="Choisir un ou plusieurs fichiers">＋ Importer</label><button id="folderBtn" class="btn">📁 Lier un dossier</button><button id="closeLib" class="btn primary">Fermer</button></div></header>
+    <input type="file" id="dirIn" webkitdirectory multiple style="display:none">
+    <div id="folderBar" class="folder-bar hidden"><span id="folderInfo"></span><button id="syncBtn" class="btn primary">🔄 Synchroniser</button></div>
     <input id="libSearch" type="search" placeholder="Rechercher un morceau ou un compositeur…" autocomplete="off" spellcheck="false">
     <div class="lib-filters">
       <div class="seg" id="libKind"><button data-v="all">Tous</button><button data-v="fav">⭐ Favoris</button><button data-v="builtin">Intégrés</button><button data-v="imported">Importés</button></div>
@@ -255,7 +260,7 @@ kbd{background:var(--panel2);border:1px solid var(--line);border-radius:4px;padd
     </div>
     <div id="libRecent"></div>
     <div id="libList" class="lib-list"></div>
-    <p class="credit lib-hint">La difficulté (1 très facile → 5 très difficile) est estimée par l'app ; touche le badge pour la corriger. Format accepté pour l'import : MusicXML (.mxl, .musicxml) ou MIDI (.mid).</p>
+    <p class="credit lib-hint">La difficulté (1 très facile → 5 très difficile) est estimée par l'app ; touche le badge pour la corriger. Formats acceptés : MusicXML (.mxl, .musicxml) ou MIDI (.mid). « Importer » accepte plusieurs fichiers à la fois ; un dossier lié se met à jour avec « Synchroniser » (nouvelles partitions ajoutées, partitions modifiées remplacées).</p>
    </div>
   </div>
   <div id="timeline">
@@ -676,10 +681,38 @@ const LEVELS=[
 const S=Object.assign({hands:'R',simp:1,mode:'wait',speed:.6,names:true,notation:'fr',reverb:'room',midiSound:'piano',accomp:true,appSound:true,from:1,to:9999,level:0},
   store.get('settings',{}),{from:1,to:9999});
 const SONGS=SONG_DEFS.map(makeSong);
-for(const imp of store.get('imports',[])){try{
+/* ----- Partitions importées : rangées dans IndexedDB (pas de limite de nombre comme avec localStorage) ----- */
+const idb=(()=>{
+  let p=null;
+  const open=()=>p||(p=new Promise((res,rej)=>{
+    const r=indexedDB.open('pianoPasAPas',1);
+    r.onupgradeneeded=()=>{r.result.createObjectStore('imports',{keyPath:'id'});r.result.createObjectStore('kv');};
+    r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error);
+  }));
+  const run=async(name,mode,fn)=>{const db=await open();return new Promise((res,rej)=>{const t=db.transaction(name,mode),q=fn(t.objectStore(name));t.oncomplete=()=>res(q?q.result:undefined);t.onerror=()=>rej(t.error);});};
+  return {all:()=>run('imports','readonly',s=>s.getAll()),put:o=>run('imports','readwrite',s=>s.put(o)),del:id=>run('imports','readwrite',s=>s.delete(id)),
+    get:k=>run('kv','readonly',s=>s.get(k)),set:(k,v)=>run('kv','readwrite',s=>s.put(v,k))};
+})();
+let idbOK=true;
+async function saveImport(o){if(idbOK){try{await idb.put(o);return;}catch(e){idbOK=false;}}const l=store.get('imports',[]).filter(i=>i.id!==o.id);l.push(o);store.set('imports',l.slice(-10));}
+async function removeImport(id){if(idbOK){try{await idb.del(id);return;}catch(e){idbOK=false;}}store.set('imports',store.get('imports',[]).filter(i=>i.id!==id));}
+function songFromImport(imp){
   const s=imp.type==='midi'?parseMIDI(b64ToBuf(imp.b64),imp.title):imp.type==='ai'?buildAiSong(imp.data,imp.title).song:parseMusicXML(imp.xml,imp.title);
-  SONGS.push(Object.assign(s,{id:imp.id}));
-}catch(e){}}
+  return Object.assign(s,{id:imp.id,key:imp.key||null,mod:imp.mod||0,size:imp.size||0});
+}
+const newId=()=>'imp-'+Date.now().toString(36)+Math.random().toString(36).slice(2,7);
+async function loadImports(){
+  let list=[];
+  try{
+    const legacy=store.get('imports',null); // anciennes partitions rangées dans localStorage : on les déplace
+    if(legacy&&legacy.length){for(const o of legacy) await idb.put(o);try{localStorage.removeItem('ppap.imports');}catch(e){}}
+    list=await idb.all();
+  }catch(e){idbOK=false;list=store.get('imports',[]);}
+  for(const imp of list){try{SONGS.push(songFromImport(imp));}catch(e){}}
+  const want=store.get('song');
+  if(want&&SONG.id!==want){const s=SONGS.find(x=>x.id===want);if(s){SONG=s;layoutKey='';refreshUI();resetRun();}}
+  fillSongs();
+}
 let SONG=SONGS.find(s=>s.id===store.get('song'))||SONGS[0];
 let R=null;
 let octave=4;
@@ -1501,7 +1534,7 @@ function deleteImports(list){
   const msg=list.length===1?`Supprimer « ${list[0].title} » de cet appareil ?`:`Supprimer les ${list.length} partitions importées de cet appareil ?`;
   if(!confirm(msg)) return;
   const ids=new Set(list.map(s=>s.id));
-  store.set('imports',store.get('imports',[]).filter(i=>!ids.has(i.id)));
+  for(const id of ids) removeImport(id);
   const bests=store.get('best',{});for(const k in bests) if(ids.has(k.split('|')[0])) delete bests[k];store.set('best',bests);
   for(const s of list){const i=SONGS.indexOf(s);if(i>=0) SONGS.splice(i,1);}
   if(ids.has(SONG.id)){SONG=SONGS[0];store.set('song',SONG.id);S.from=1;S.to=9999;layoutKey='';resetRun();}
@@ -1511,29 +1544,106 @@ function deleteImports(list){
 // Sur iPad/iPhone, le sélecteur de fichiers grise les formats qu'iOS ne connaît pas (.mxl, .musicxml, .mid…) :
 // on y laisse donc choisir n'importe quel fichier, l'app vérifie elle-même le format.
 if(/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1)) $('fileIn').removeAttribute('accept');
-$('fileIn').onchange=async e=>{
-  const f=e.target.files[0];e.target.value='';if(!f) return;
-  const title=f.name.replace(/\.[^.]+$/,'');
-  if(/\.pdf$/i.test(f.name)||/^image\//.test(f.type)||/\.(png|jpe?g|webp|heic)$/i.test(f.name)){
-    toast("Les PDF et les photos ne contiennent qu'une image de la partition : l'app ne peut pas les lire. Cherche la version MusicXML ou MIDI du morceau (par ex. sur musescore.com).",7000);return;
+const SCORE_RE=/\.(mxl|musicxml|xml|midi?)$/i;
+// Importe une liste de fichiers. Pour un dossier lié, un fichier déjà importé et inchangé est ignoré,
+// un fichier modifié remplace l'ancienne version (même place dans la bibliothèque, même record).
+async function importFiles(files,opts={}){
+  const res={added:0,updated:0,same:0,skipped:0,errors:[]};let last=null;
+  const existing=new Map(SONGS.filter(s=>s.imported&&s.key).map(s=>[s.key,s]));
+  for(const f of files){
+    const path=(opts.paths&&opts.paths.get(f))||f.webkitRelativePath||f.name;
+    if(!SCORE_RE.test(f.name)){res.skipped++;continue;}
+    const key=opts.folder?'folder:'+path:null,prev=key&&existing.get(key);
+    if(prev&&prev.mod===f.lastModified&&prev.size===f.size){res.same++;continue;}
+    try{
+      const title=f.name.replace(/\.[^.]+$/,'');let song,saved;
+      if(/\.midi?$/i.test(f.name)){const buf=await f.arrayBuffer();song=parseMIDI(buf,title);saved={title,type:'midi',b64:bufToB64(buf)};}
+      else{const xml=await readScoreFile(f);song=parseMusicXML(xml,title);saved={title:song.title,xml};}
+      const id=prev?prev.id:newId();
+      Object.assign(saved,{id,key,mod:f.lastModified,size:f.size});Object.assign(song,{id,key,mod:f.lastModified,size:f.size});
+      await saveImport(saved);
+      if(prev){SONGS[SONGS.indexOf(prev)]=song;if(SONG===prev) SONG=song;res.updated++;}else{SONGS.push(song);res.added++;}
+      last=song;
+    }catch(err){res.errors.push(f.name+' : '+err.message);}
   }
-  try{
-    let song,saved;
-    if(/\.midi?$/i.test(f.name)){
-      const buf=await f.arrayBuffer();
-      song=parseMIDI(buf,title);saved={id:song.id,title,type:'midi',b64:bufToB64(buf)};
-    }else{
-      if(!/\.(mxl|musicxml|xml)$/i.test(f.name)) throw new Error('format non reconnu (formats acceptés : MusicXML .mxl/.musicxml ou MIDI .mid)');
-      const xml=await readScoreFile(f);
-      song=parseMusicXML(xml,title);saved={id:song.id,title:song.title,xml};
-    }
-    SONGS.push(song);SONG=song;
-    const imps=store.get('imports',[]);imps.push(saved);store.set('imports',imps.slice(-10));
-    store.set('song',song.id);touchRecent(song.id);S.from=1;S.to=9999;layoutKey='';fillSongs();refreshUI();resetRun();
-    const nL=song.notes.filter(n=>n.hand==='L').length;
-    toast(`« ${song.title} » importé : ${song.notes.length} notes, ${song.measureStarts.length} mesures${nL?'':' (tout en main droite)'}`);
-  }catch(err){toast('Import impossible : '+err.message);}
+  return {res,last};
+}
+const plural=(n,w)=>`${n} ${w}${n>1?'s':''}`;
+$('fileIn').onchange=async e=>{
+  const files=[...e.target.files];e.target.value='';if(!files.length) return;
+  const pdf=files.filter(f=>/\.pdf$/i.test(f.name)||/^image\//.test(f.type)||/\.(png|jpe?g|webp|heic)$/i.test(f.name));
+  if(pdf.length===files.length){toast("Les PDF et les photos ne contiennent qu'une image de la partition : l'app ne peut pas les lire. Cherche la version MusicXML ou MIDI du morceau (par ex. sur musescore.com).",7000);return;}
+  if(files.length>1) toast(`Import de ${files.length} fichiers…`);
+  const {res,last}=await importFiles(files);
+  if(files.length===1&&last){
+    SONG=last;store.set('song',last.id);touchRecent(last.id);S.from=1;S.to=9999;layoutKey='';fillSongs();refreshUI();resetRun();
+    const nL=last.notes.filter(n=>n.hand==='L').length;
+    toast(`« ${last.title} » importé : ${last.notes.length} notes, ${last.measureStarts.length} mesures${nL?'':' (tout en main droite)'}`);
+  }else{
+    fillSongs();
+    const pl=n=>n>1?'s':'';
+    toast(`${res.added} partition${pl(res.added)} importée${pl(res.added)}`+(res.skipped?` · ${res.skipped} fichier${pl(res.skipped)} ignoré${pl(res.skipped)}`:'')
+      +(res.errors.length?` · illisible${pl(res.errors.length)} : ${res.errors.slice(0,3).join(' ; ')}`:''),6000);
+  }
 };
+/* ----- Dossier lié + bouton Synchroniser ----- */
+function renderFolder(){
+  const name=store.get('folderName',null),t=store.get('folderSync',null),bar=$('folderBar');
+  bar.classList.toggle('hidden',!name);
+  if(name) $('folderInfo').textContent=`📁 ${name}`+(t?` · synchronisé le ${new Date(t).toLocaleDateString('fr-FR')} à ${new Date(t).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}`:'');
+  $('folderBtn').textContent=name?'📁 Changer de dossier':'📁 Lier un dossier';
+}
+async function finishFolderSync(name,files,opts){
+  if(name) store.set('folderName',name);
+  toast(`Synchronisation de « ${name||store.get('folderName','')} »…`);
+  const {res}=await importFiles(files,{...opts,folder:true});
+  store.set('folderSync',Date.now());renderFolder();fillSongs();
+  toast(`Dossier synchronisé : ${plural(res.added,'nouvelle')}, ${plural(res.updated,'mise')} à jour, ${plural(res.same,'inchangée')}`+(res.errors.length?` · ${plural(res.errors.length,'illisible')}`:''),6000);
+}
+async function syncFromHandle(h){
+  const files=[],paths=new Map();
+  async function walk(dir,prefix,depth){
+    for await(const [name,entry] of dir.entries()){
+      if(entry.kind==='file'&&SCORE_RE.test(name)){const f=await entry.getFile();files.push(f);paths.set(f,prefix+name);}
+      else if(entry.kind==='directory'&&depth<3) await walk(entry,prefix+name+'/',depth+1);
+    }
+  }
+  await walk(h,'',0);
+  await finishFolderSync(h.name,files,{paths});
+}
+async function pickFolder(){
+  if(window.__nativeFolder){window.webkit.messageHandlers.folder.postMessage('pick');return;} // app iPad
+  if(window.showDirectoryPicker){ // Chrome / Edge sur ordinateur : accès permanent au dossier
+    try{const h=await showDirectoryPicker({id:'partitions',mode:'read'});try{await idb.set('folderHandle',h);}catch(e){}await syncFromHandle(h);}
+    catch(e){if(e.name!=='AbortError') toast('Dossier inaccessible : '+e.message);}
+    return;
+  }
+  $('dirIn').click(); // autres navigateurs : on choisit le dossier à chaque synchronisation
+}
+async function syncFolder(){
+  if(window.__nativeFolder){window.webkit.messageHandlers.folder.postMessage('sync');return;}
+  if(window.showDirectoryPicker){
+    let h=null;try{h=await idb.get('folderHandle');}catch(e){}
+    if(!h) return pickFolder();
+    let perm=await h.queryPermission({mode:'read'});if(perm!=='granted') perm=await h.requestPermission({mode:'read'});
+    if(perm!=='granted'){toast("L'accès au dossier a été refusé.");return;}
+    return syncFromHandle(h);
+  }
+  $('dirIn').click();
+}
+$('dirIn').onchange=e=>{
+  const files=[...e.target.files];e.target.value='';if(!files.length) return;
+  finishFolderSync((files[0].webkitRelativePath||'').split('/')[0]||'Dossier',files,{});
+};
+$('folderBtn').onclick=e=>{e.currentTarget.blur();pickFolder();};
+$('syncBtn').onclick=e=>{e.currentTarget.blur();syncFolder();};
+// L'app iPad lit le dossier elle-même et envoie les fichiers un par un
+let nativeBatch=null;
+window.__folderBegin=name=>{nativeBatch={name,files:[]};};
+window.__folderFile=f=>{if(!nativeBatch) return;const bytes=new Uint8Array(b64ToBuf(f.b64));
+  const file=new File([bytes],f.name,{lastModified:f.mod});nativeBatch.files.push(file);(nativeBatch.paths=nativeBatch.paths||new Map()).set(file,f.path);};
+window.__folderEnd=()=>{if(!nativeBatch) return;const b=nativeBatch;nativeBatch=null;finishFolderSync(b.name,b.files,{paths:b.paths||new Map()});};
+window.__folderError=msg=>{nativeBatch=null;toast('Dossier : '+msg,6000);};
 
 function refreshUI(){
   document.querySelectorAll('.levels button').forEach(b=>b.classList.toggle('active',+b.dataset.i===S.level));
@@ -1550,7 +1660,7 @@ function refreshUI(){
 }
 
 S.level=matchLevel();
-fillSongs();refreshUI();resize();resetRun();initMIDI();prefetchSamples();requestAnimationFrame(frame);
+fillSongs();refreshUI();resize();resetRun();initMIDI();prefetchSamples();requestAnimationFrame(frame);renderFolder();loadImports();
 window.__piano={S,get R(){return R;},noteOn,noteOff,parseMusicXML,get SONG(){return SONG;}};
 </script>
 </body>
