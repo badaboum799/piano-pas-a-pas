@@ -47,6 +47,13 @@ select{max-width:240px}
 .settings{position:fixed;inset:0;z-index:15;background:var(--bg);overflow-y:auto;-webkit-overflow-scrolling:touch;padding:0 16px calc(28px + env(safe-area-inset-bottom))}
 .settings.hidden{display:none}
 .sheet{max-width:720px;margin:0 auto}
+/* écran large (iPad en paysage, ordinateur) : réglages sur deux colonnes */
+@media (min-width:900px){
+  #settings .sheet{max-width:1120px}
+  #settings .sheet-grid{columns:2;column-gap:16px}
+  #settings .card-s{break-inside:avoid;-webkit-column-break-inside:avoid;display:inline-block;width:100%}
+  #settings .card-s.compact-only{display:none}
+}
 .sheet-head{position:sticky;top:0;z-index:2;display:flex;align-items:center;justify-content:space-between;padding:calc(14px + env(safe-area-inset-top)) 0 12px;background:var(--bg)}
 .sheet-head h2{margin:0;font-size:22px}
 .sheet-head .btn.primary{min-width:0;padding:9px 18px}
@@ -211,6 +218,7 @@ kbd{background:var(--panel2);border:1px solid var(--line);border-radius:4px;padd
   <div id="settings" class="settings hidden" role="dialog" aria-label="Réglages">
    <div class="sheet">
     <header class="sheet-head"><h2>⚙︎ Réglages</h2><button id="closeSettings" class="btn primary">Terminé</button></header>
+    <div class="sheet-grid">
 
     <section class="card-s compact-only">
       <h3>Difficulté</h3>
@@ -245,6 +253,7 @@ kbd{background:var(--panel2);border:1px solid var(--line);border-radius:4px;padd
       <p>Sans piano : touche les touches à l'écran, ou utilise le clavier de l'ordi (AZERTY) : <kbd>Q</kbd><kbd>S</kbd><kbd>D</kbd><kbd>F</kbd><kbd>G</kbd><kbd>H</kbd><kbd>J</kbd><kbd>K</kbd> = <span id="scaleLbl"></span>, <kbd>Z</kbd><kbd>E</kbd><kbd>T</kbd><kbd>Y</kbd><kbd>U</kbd> = dièses, <kbd>←</kbd><kbd>→</kbd> = octave (<span id="octLbl"></span>), <kbd>Espace</kbd> = jouer / pause, <kbd>Début</kbd> = revenir au début.</p>
       <p class="credit">Son de piano : Salamander Grand Piano, par Alexander Holm (licence CC-BY 3.0).</p>
     </section>
+    </div>
    </div>
   </div>
   <div id="library" class="settings hidden" role="dialog" aria-label="Bibliothèque">
