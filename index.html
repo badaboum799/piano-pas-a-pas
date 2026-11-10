@@ -96,6 +96,33 @@ kbd{background:var(--panel2);border:1px solid var(--line);border-radius:4px;padd
 #stage{overflow:hidden}
 #cv{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none}
 #moreBtn{font-size:20px;line-height:1;padding:6px 10px}
+.songbtn{display:inline-flex;align-items:center;gap:8px;max-width:340px;font-weight:600}
+#songBtnTitle{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.songbtn .caret{color:var(--muted)}
+#libSearch{width:100%;font:inherit;font-size:16px;color:var(--text);background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:11px 14px;margin:2px 0 10px;-webkit-user-select:text;user-select:text}
+.lib-filters{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;align-items:center}
+.lib-title{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:4px 0 8px}
+.recent-row{display:flex;gap:10px;overflow-x:auto;padding-bottom:6px;margin-bottom:14px}
+.rcard{flex:0 0 190px;display:flex;align-items:center;gap:10px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 12px;cursor:pointer;min-width:0}
+.rcard div{min-width:0}
+.rcard b{display:block;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rcard span{font-size:12px;color:var(--muted)}
+.lib-list{display:flex;flex-direction:column;gap:8px}
+.lrow{display:flex;align-items:center;gap:12px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 12px;cursor:pointer}
+.lrow.cur{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset}
+.dbadge{flex:none;width:42px;height:42px;border-radius:12px;display:flex;align-items:center;justify-content:center;font:800 18px -apple-system,sans-serif;color:#0b0e1c;border:0;cursor:pointer;position:relative}
+.dbadge.sm{width:34px;height:34px;font-size:15px;border-radius:10px}
+.dbadge.manual::after{content:'✎';position:absolute;right:2px;bottom:0;font-size:10px}
+.d1{background:#3ddc97}.d2{background:#a3e36b}.d3{background:#ffd166}.d4{background:#ff9f5a}.d5{background:#ff6b7f}
+.linfo{flex:1;min-width:0}
+.linfo b{display:block;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.linfo span{display:block;font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+.lbest{flex:none;text-align:right;font-size:11px;color:var(--muted);min-width:54px}
+.lbest b{display:block;font-size:16px;color:var(--text)}
+.lbtn{flex:none;background:transparent;border:0;font-size:20px;line-height:1;cursor:pointer;color:var(--muted);padding:6px}
+.lbtn.fav-on{color:var(--gold)}
+.lib-empty{color:var(--muted);text-align:center;padding:30px 0}
+.lib-hint{display:block;margin:14px 0 4px}
 #moreBtn.on{background:var(--panel2);border-color:var(--accent);color:var(--accent)}
 #rangeChip{display:none}
 #rangeChip.show{display:inline-block}
@@ -143,7 +170,7 @@ kbd{background:var(--panel2);border:1px solid var(--line);border-radius:4px;padd
     <div class="brand">🎹 Piano Pas à Pas</div>
     <div id="midiStatus" class="pill o1" title="Cliquer pour relancer la détection"><span class="full">Recherche du piano…</span><span class="short">🎹 …</span></div>
     <div class="spacer"></div>
-    <select id="songSel" class="o2" aria-label="Morceau"></select>
+    <button id="songBtn" class="btn o2 songbtn" aria-label="Choisir un morceau" title="Choisir un morceau dans la bibliothèque"><span>📚</span><span id="songBtnTitle"></span><span class="caret">▾</span></button>
     <label class="btn ghost wide-only" for="fileIn">Importer une partition</label>
     <input type="file" id="fileIn" accept=".xml,.musicxml,.mxl,.mid,.midi,application/vnd.recordare.musicxml+xml,application/vnd.recordare.musicxml,audio/midi,audio/x-midi" style="display:none">
   </header>
@@ -208,17 +235,25 @@ kbd{background:var(--panel2);border:1px solid var(--line);border-radius:4px;padd
       <label class="opt"><div class="opt-txt">Afficher les noms sur les notes et sur le clavier</div><input type="checkbox" id="optNames" class="switch"></label>
     </section>
 
-    <section class="card-s">
-      <h3>Mes partitions</h3>
-      <div class="opt"><div class="opt-txt">Ajouter une partition<small>Fichier MusicXML (.mxl, .musicxml) ou MIDI (.mid)</small></div><label class="btn" for="fileIn">Importer une partition</label></div>
-      <div id="impList"></div>
-    </section>
-
     <section class="card-s help">
       <h3>Aide</h3>
       <p>Sans piano : touche les touches à l'écran, ou utilise le clavier de l'ordi (AZERTY) : <kbd>Q</kbd><kbd>S</kbd><kbd>D</kbd><kbd>F</kbd><kbd>G</kbd><kbd>H</kbd><kbd>J</kbd><kbd>K</kbd> = <span id="scaleLbl"></span>, <kbd>Z</kbd><kbd>E</kbd><kbd>T</kbd><kbd>Y</kbd><kbd>U</kbd> = dièses, <kbd>←</kbd><kbd>→</kbd> = octave (<span id="octLbl"></span>), <kbd>Espace</kbd> = jouer / pause, <kbd>Début</kbd> = revenir au début.</p>
       <p class="credit">Son de piano : Salamander Grand Piano, par Alexander Holm (licence CC-BY 3.0).</p>
     </section>
+   </div>
+  </div>
+  <div id="library" class="settings hidden" role="dialog" aria-label="Bibliothèque">
+   <div class="sheet">
+    <header class="sheet-head"><h2>📚 Bibliothèque</h2><div class="row"><label class="btn" for="fileIn">＋ Importer</label><button id="closeLib" class="btn primary">Fermer</button></div></header>
+    <input id="libSearch" type="search" placeholder="Rechercher un morceau ou un compositeur…" autocomplete="off" spellcheck="false">
+    <div class="lib-filters">
+      <div class="seg" id="libKind"><button data-v="all">Tous</button><button data-v="fav">⭐ Favoris</button><button data-v="builtin">Intégrés</button><button data-v="imported">Importés</button></div>
+      <div class="seg" id="libDiff"><button data-v="0">Toutes</button><button data-v="1">1</button><button data-v="2">2</button><button data-v="3">3</button><button data-v="4">4</button><button data-v="5">5</button></div>
+      <select id="libSort" aria-label="Trier"><option value="recent">Récents d'abord</option><option value="diff">Plus facile d'abord</option><option value="title">Titre (A → Z)</option><option value="best">Meilleur record</option></select>
+    </div>
+    <div id="libRecent"></div>
+    <div id="libList" class="lib-list"></div>
+    <p class="credit lib-hint">La difficulté (1 très facile → 5 très difficile) est estimée par l'app ; touche le badge pour la corriger. Format accepté pour l'import : MusicXML (.mxl, .musicxml) ou MIDI (.mid).</p>
    </div>
   </div>
   <div id="timeline">
@@ -312,6 +347,48 @@ const SONG_DEFS=[
     rh:"E4 E4 F4 G4 | G4 F4 E4 D4 | C4 C4 D4 E4 | E4:1.5 D4:0.5 D4:2 | E4 E4 F4 G4 | G4 F4 E4 D4 | C4 C4 D4 E4 | D4:1.5 C4:0.5 C4:2 | D4 D4 E4 C4 | D4 E4:0.5 F4:0.5 E4 C4 | D4 E4:0.5 F4:0.5 E4 D4 | C4 D4 G3:2 | E4 E4 F4 G4 | G4 F4 E4 D4 | C4 C4 D4 E4 | D4:1.5 C4:0.5 C4:2",
     lh:[oC,oG,oC,oG,oC,oG,oC,oGC,oG,oGC,oG,oCG,oC,oG,oC,oGC].join(' | ')},
 ];
+
+/* ================= Difficulté estimée d'une partition =================
+   Calculée sur la partition complète, pour chaque main puis pour l'ensemble, à partir de :
+   densité de notes (au tempo prévu), accords, sauts, étendue, touches noires, rythme,
+   indépendance des mains et longueur. Résultat de 1 (très facile) à 5 (très difficile). */
+const DIFF_NAMES=['','Très facile','Facile','Moyen','Difficile','Très difficile'];
+function handScore(notes,secPerBeat,totalSec){
+  if(!notes.length) return {score:0,count:0};
+  const on=new Map();
+  for(const n of notes){const k=Math.round(n.start*96);if(!on.has(k)) on.set(k,[]);on.get(k).push(n);}
+  const keys=[...on.keys()].sort((a,b)=>a-b),groups=keys.map(k=>on.get(k));
+  const hand=notes[0].hand,lead=g=>hand==='R'?Math.max(...g.map(n=>n.midi)):Math.min(...g.map(n=>n.midi));
+  const density=groups.length/Math.max(1,totalSec);                        // attaques par seconde
+  const avgChord=notes.length/groups.length,maxChord=Math.max(...groups.map(g=>g.length));
+  const span=Math.max(...groups.map(g=>Math.max(...g.map(n=>n.midi))-Math.min(...g.map(n=>n.midi))));
+  let big=0;for(let i=1;i<groups.length;i++) if(Math.abs(lead(groups[i])-lead(groups[i-1]))>7) big++;
+  const bigFrac=big/Math.max(1,groups.length-1);                           // sauts de plus d'une quinte
+  const range=Math.max(...notes.map(n=>n.midi))-Math.min(...notes.map(n=>n.midi));
+  const black=notes.filter(n=>isBlack(n.midi)).length/notes.length;
+  const offGrid=keys.filter(k=>k%48!==0).length/keys.length;               // hors des croches : doubles, triolets…
+  let ioiMin=99;for(let i=1;i<keys.length;i++) ioiMin=Math.min(ioiMin,(keys[i]-keys[i-1])/96*secPerBeat);
+  let sc=Math.min(4,density*1.1)+Math.min(2,(avgChord-1)*1.4)+(maxChord>=4?.5:0)+(span>=10?.5:0)
+    +Math.min(1.5,bigFrac*4)+Math.min(1.5,Math.max(0,(range-12)/12))+Math.min(1.2,black*3)+Math.min(1.5,offGrid*2.5)
+    +(ioiMin<.12?.8:ioiMin<.18?.4:0);
+  return {score:sc,count:groups.length,starts:new Set(keys)};
+}
+function scoreToLevel(x){return x<2.4?1:x<3.6?2:x<4.9?3:x<6.3?4:5;}
+function computeDifficulty(song){
+  if(song._diff) return song._diff;
+  const spb=60/song.bpm,total=song.length*spb;
+  const R=handScore(song.notes.filter(n=>n.hand==='R'),spb,total),L=handScore(song.notes.filter(n=>n.hand==='L'),spb,total);
+  let indep=0; // part des attaques de la main gauche qui ne tombent pas avec la main droite
+  if(R.count&&L.count){let alone=0;for(const k of L.starts) if(!R.starts.has(k)) alone++;indep=alone/L.count;}
+  const nM=song.measureStarts.length;
+  const overall=Math.max(R.score,L.score)+(R.count&&L.count?.6+indep*1.4:0)+(nM>64?.6:nM>32?.3:0);
+  song._diff={level:scoreToLevel(overall),R:R.count?scoreToLevel(R.score):0,L:L.count?scoreToLevel(L.score):0,raw:+overall.toFixed(2),rawR:+R.score.toFixed(2),rawL:+L.score.toFixed(2)};
+  return song._diff;
+}
+function difficultyOf(song){ // la difficulté corrigée à la main l'emporte
+  const d=computeDifficulty(song),o=store.get('diffOverride',{})[song.id];
+  return o?{...d,level:o,manual:true}:d;
+}
 
 /* ================= Import MusicXML ================= */
 function q(el,sel){const e=el.querySelector(sel);return e?e.textContent.trim():'';}
@@ -1225,6 +1302,7 @@ cv.addEventListener('pointerup',endTouch);cv.addEventListener('pointercancel',en
 const CODE_MAP={KeyA:0,KeyW:1,KeyS:2,KeyE:3,KeyD:4,KeyF:5,KeyT:6,KeyG:7,KeyY:8,KeyH:9,KeyU:10,KeyJ:11,KeyK:12,KeyO:13,KeyL:14,KeyP:15,Semicolon:16};
 window.addEventListener('keydown',e=>{
   if(!$('settings').classList.contains('hidden')){if(e.code==='Escape') toggleSettings(false);return;}
+  if(!$('library').classList.contains('hidden')){if(e.code==='Escape') toggleLibrary(false);return;}
   if(e.target.tagName==='INPUT'||e.target.tagName==='SELECT') return;
   if(e.code==='Space'){e.preventDefault();togglePlay();return;}
   if(e.code==='Home'){e.preventDefault();goToStart();return;}
@@ -1296,25 +1374,99 @@ $('playBtn').onclick=e=>{e.currentTarget.blur();togglePlay();};
 
 
 function fillSongs(){
-  const sel=$('songSel');sel.innerHTML='';
-  SONGS.forEach(s=>{const o=document.createElement('option');o.value=s.id;o.textContent=(s.imported?'📄 ':'')+s.title;sel.appendChild(o);});
-  sel.value=SONG.id;
-  renderImports();
+  $('songBtnTitle').textContent=SONG.title;$('songBtn').title=SONG.title+' — choisir un autre morceau';
+  if(!$('library').classList.contains('hidden')) renderLibrary();
 }
-// Liste des partitions importées, avec un bouton pour supprimer chacune (les morceaux intégrés restent)
-function renderImports(){
-  const box=$('impList');box.innerHTML='';
-  const imps=SONGS.filter(s=>s.imported);
-  if(!imps.length){const e=document.createElement('span');e.className='credit';e.textContent='Aucune partition importée.';box.appendChild(e);return;}
-  for(const s of imps){
-    const row=document.createElement('div');row.className='imp';
-    const t=document.createElement('span');t.textContent='📄 '+s.title;t.title=s.title;
-    const b=document.createElement('button');b.className='btn ghost danger';b.textContent='Supprimer';b.onclick=()=>deleteImports([s]);
-    row.append(t,b);box.appendChild(row);
+/* ----- Bibliothèque : recherche, filtres, tri, favoris, records, difficulté ----- */
+const lib={q:'',kind:'all',diff:0,sort:store.get('libSort','recent')};
+const norm=t=>(t||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase();
+function bestOf(id){const b=store.get('best',{});let m=null;for(const k in b) if(k.split('|')[0]===id) m=Math.max(m??0,b[k]);return m;}
+function fmtDur(sec){sec=Math.round(sec);return sec<60?sec+' s':Math.floor(sec/60)+' min '+String(sec%60).padStart(2,'0');}
+function touchRecent(id){const r=store.get('recent',[]).filter(x=>x!==id);r.unshift(id);store.set('recent',r.slice(0,12));}
+function handAdvice(d){
+  if(!d.R||!d.L||d.R===d.L) return '';
+  return d.R<d.L?'Main droite plus facile : commence par elle.':'Main gauche plus facile : commence par elle.';
+}
+function selectSong(id){
+  const s=SONGS.find(x=>x.id===id);if(!s) return;
+  SONG=s;store.set('song',s.id);touchRecent(s.id);S.from=1;S.to=9999;layoutKey='';refreshUI();resetRun();fillSongs();
+  const d=difficultyOf(s);toast(`« ${s.title} » · difficulté ${d.level}/5 (${DIFF_NAMES[d.level].toLowerCase()}). ${handAdvice(d)}`,4500);
+}
+function badge(song,small){
+  const d=difficultyOf(song),b=document.createElement('button');
+  b.className=`dbadge d${d.level}${small?' sm':''}${d.manual?' manual':''}`;b.textContent=d.level;
+  b.title=`Difficulté ${d.level}/5 : ${DIFF_NAMES[d.level]}${d.manual?' (corrigée à la main)':' (estimée)'} — toucher pour corriger`;
+  b.onclick=e=>{ // correction à la main : estimée → 1 → 2 → … → 5 → estimée
+    e.stopPropagation();const o=store.get('diffOverride',{}),cur=o[song.id];
+    if(!cur) o[song.id]=1;else if(cur<5) o[song.id]=cur+1;else delete o[song.id];
+    store.set('diffOverride',o);const nd=difficultyOf(song);
+    toast(o[song.id]?`Difficulté de « ${song.title} » fixée à ${nd.level}/5.`:`Difficulté de « ${song.title} » : retour à l'estimation (${nd.level}/5).`);renderLibrary();
+  };
+  return b;
+}
+function renderLibrary(){
+  const favs=new Set(store.get('favs',[])),recent=store.get('recent',[]);
+  document.querySelectorAll('#libKind button').forEach(b=>b.classList.toggle('active',b.dataset.v===lib.kind));
+  document.querySelectorAll('#libDiff button').forEach(b=>b.classList.toggle('active',+b.dataset.v===lib.diff));
+  $('libSort').value=lib.sort;
+  const q=norm(lib.q.trim());
+  let list=SONGS.filter(s=>(!q||norm(s.title+' '+(s.composer||'')).includes(q))
+    &&(lib.kind==='all'||(lib.kind==='fav'&&favs.has(s.id))||(lib.kind==='builtin'&&!s.imported)||(lib.kind==='imported'&&s.imported))
+    &&(!lib.diff||difficultyOf(s).level===lib.diff));
+  const rank=id=>{const i=recent.indexOf(id);return i<0?999:i;};
+  if(lib.sort==='recent') list.sort((a,b)=>rank(a.id)-rank(b.id));
+  else if(lib.sort==='diff') list.sort((a,b)=>difficultyOf(a).level-difficultyOf(b).level||computeDifficulty(a).raw-computeDifficulty(b).raw);
+  else if(lib.sort==='title') list.sort((a,b)=>a.title.localeCompare(b.title,'fr'));
+  else list.sort((a,b)=>(bestOf(b.id)??-1)-(bestOf(a.id)??-1));
+  // « Reprendre » : les derniers morceaux joués, quand on ne cherche rien
+  const rec=$('libRecent');rec.innerHTML='';
+  const recSongs=recent.map(id=>SONGS.find(s=>s.id===id)).filter(Boolean).slice(0,4);
+  if(!q&&lib.kind==='all'&&!lib.diff&&recSongs.length){
+    const t=document.createElement('div');t.className='lib-title';t.textContent='Reprendre';rec.appendChild(t);
+    const row=document.createElement('div');row.className='recent-row';
+    for(const s of recSongs){
+      const c=document.createElement('div');c.className='rcard';c.onclick=()=>{selectSong(s.id);toggleLibrary(false);};
+      const info=document.createElement('div'),b=document.createElement('b'),sp=document.createElement('span');
+      b.textContent=s.title;const best=bestOf(s.id);sp.textContent=best!=null?`Record ${best} %`:'Pas encore de record';
+      info.append(b,sp);c.append(badge(s,true),info);row.appendChild(c);
+    }
+    rec.appendChild(row);
+    const t2=document.createElement('div');t2.className='lib-title';t2.textContent='Tous les morceaux';rec.appendChild(t2);
   }
-  if(imps.length>1){const b=document.createElement('button');b.className='btn ghost danger';b.textContent=`Tout supprimer (${imps.length})`;b.onclick=()=>deleteImports(imps);box.appendChild(b);}
-  const note=document.createElement('span');note.className='credit';note.textContent="L'app garde au plus 10 partitions importées sur cet appareil.";box.appendChild(note);
+  const box=$('libList');box.innerHTML='';
+  if(!list.length){const e=document.createElement('div');e.className='lib-empty';e.textContent=q?'Aucun morceau ne correspond à la recherche.':'Aucun morceau dans cette catégorie.';box.appendChild(e);return;}
+  for(const s of list){
+    const d=difficultyOf(s),row=document.createElement('div');row.className='lrow'+(s===SONG?' cur':'');
+    row.onclick=()=>{selectSong(s.id);toggleLibrary(false);};
+    const info=document.createElement('div');info.className='linfo';
+    const t=document.createElement('b');t.textContent=(s.imported?'📄 ':'')+s.title;
+    const sub=document.createElement('span');
+    const hands=d.R&&d.L?` · MD ${DIFF_NAMES[d.R].toLowerCase()}, MG ${DIFF_NAMES[d.L].toLowerCase()}`:'';
+    sub.textContent=[DIFF_NAMES[d.level],s.composer,fmtDur(s.length*60/s.bpm),s.measureStarts.length+' mesures'].filter(Boolean).join(' · ')+hands;
+    info.append(t,sub);
+    const best=bestOf(s.id),bb=document.createElement('div');bb.className='lbest';
+    const bv=document.createElement('b');bv.textContent=best!=null?best+' %':'–';bb.append(bv,document.createTextNode('record'));
+    const fav=document.createElement('button');fav.className='lbtn'+(favs.has(s.id)?' fav-on':'');fav.textContent=favs.has(s.id)?'★':'☆';
+    fav.title=favs.has(s.id)?'Retirer des favoris':'Ajouter aux favoris';
+    fav.onclick=e=>{e.stopPropagation();const f=new Set(store.get('favs',[]));f.has(s.id)?f.delete(s.id):f.add(s.id);store.set('favs',[...f]);renderLibrary();};
+    row.append(badge(s),info,bb,fav);
+    if(s.imported){const del=document.createElement('button');del.className='lbtn';del.textContent='🗑';del.title='Supprimer cette partition';
+      del.onclick=e=>{e.stopPropagation();deleteImports([s]);};row.appendChild(del);}
+    box.appendChild(row);
+  }
 }
+function toggleLibrary(force){
+  const L=$('library'),show=force!==undefined?force:L.classList.contains('hidden');
+  if(show&&R&&R.playing) togglePlay();
+  L.classList.toggle('hidden',!show);
+  if(show){renderLibrary();L.scrollTop=0;}
+}
+$('songBtn').onclick=e=>{e.currentTarget.blur();toggleLibrary(true);};
+$('closeLib').onclick=()=>toggleLibrary(false);
+$('libSearch').oninput=e=>{lib.q=e.target.value;renderLibrary();};
+document.querySelectorAll('#libKind button').forEach(b=>b.onclick=()=>{lib.kind=b.dataset.v;renderLibrary();});
+document.querySelectorAll('#libDiff button').forEach(b=>b.onclick=()=>{lib.diff=+b.dataset.v;renderLibrary();});
+$('libSort').onchange=e=>{lib.sort=e.target.value;store.set('libSort',lib.sort);renderLibrary();};
 function deleteImports(list){
   const msg=list.length===1?`Supprimer « ${list[0].title} » de cet appareil ?`:`Supprimer les ${list.length} partitions importées de cet appareil ?`;
   if(!confirm(msg)) return;
@@ -1326,7 +1478,6 @@ function deleteImports(list){
   fillSongs();refreshUI();
   toast(list.length===1?`« ${list[0].title} » supprimée.`:`${list.length} partitions supprimées.`);
 }
-$('songSel').onchange=e=>{SONG=SONGS.find(s=>s.id===e.target.value);store.set('song',SONG.id);S.from=1;S.to=9999;layoutKey='';refreshUI();resetRun();e.target.blur();};
 // Sur iPad/iPhone, le sélecteur de fichiers grise les formats qu'iOS ne connaît pas (.mxl, .musicxml, .mid…) :
 // on y laisse donc choisir n'importe quel fichier, l'app vérifie elle-même le format.
 if(/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1)) $('fileIn').removeAttribute('accept');
@@ -1348,7 +1499,7 @@ $('fileIn').onchange=async e=>{
     }
     SONGS.push(song);SONG=song;
     const imps=store.get('imports',[]);imps.push(saved);store.set('imports',imps.slice(-10));
-    store.set('song',song.id);S.from=1;S.to=9999;layoutKey='';fillSongs();refreshUI();resetRun();
+    store.set('song',song.id);touchRecent(song.id);S.from=1;S.to=9999;layoutKey='';fillSongs();refreshUI();resetRun();
     const nL=song.notes.filter(n=>n.hand==='L').length;
     toast(`« ${song.title} » importé : ${song.notes.length} notes, ${song.measureStarts.length} mesures${nL?'':' (tout en main droite)'}`);
   }catch(err){toast('Import impossible : '+err.message);}
