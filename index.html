@@ -258,6 +258,7 @@ kbd{background:var(--panel2);border:1px solid var(--line);border-radius:4px;padd
       <div class="seg" id="libDiff"><button data-v="0">Toutes</button><button data-v="1">1</button><button data-v="2">2</button><button data-v="3">3</button><button data-v="4">4</button><button data-v="5">5</button></div>
       <select id="libSort" aria-label="Trier"><option value="recent">Récents d'abord</option><option value="diff">Plus facile d'abord</option><option value="title">Titre (A → Z)</option><option value="best">Meilleur record</option></select>
     </div>
+    <div id="dupBar" class="folder-bar hidden"><span id="dupInfo"></span><button id="dupBtn" class="btn">Supprimer les doublons</button></div>
     <div id="libRecent"></div>
     <div id="libList" class="lib-list"></div>
     <p class="credit lib-hint">La difficulté (1 très facile → 5 très difficile) est estimée par l'app ; touche le badge pour la corriger. Formats acceptés : MusicXML (.mxl, .musicxml) ou MIDI (.mid). « Importer » accepte plusieurs fichiers à la fois ; un dossier lié se met à jour avec « Synchroniser » (nouvelles partitions ajoutées, partitions modifiées remplacées).</p>
@@ -696,9 +697,16 @@ const idb=(()=>{
 let idbOK=true;
 async function saveImport(o){if(idbOK){try{await idb.put(o);return;}catch(e){idbOK=false;}}const l=store.get('imports',[]).filter(i=>i.id!==o.id);l.push(o);store.set('imports',l.slice(-10));}
 async function removeImport(id){if(idbOK){try{await idb.del(id);return;}catch(e){idbOK=false;}}store.set('imports',store.get('imports',[]).filter(i=>i.id!==id));}
+// Empreinte du contenu (même partition = même empreinte, qu'elle vienne de Google Drive, d'iCloud ou d'ailleurs)
+function fingerprint(rec){
+  const bytes=rec.type==='midi'?new Uint8Array(b64ToBuf(rec.b64)):new TextEncoder().encode(rec.xml||JSON.stringify(rec.data||''));
+  let h=0x811c9dc5,h2=0x01000193;
+  for(let i=0;i<bytes.length;i++){h=Math.imul(h^bytes[i],16777619);h2=Math.imul(h2+bytes[i],2654435761);}
+  return (h>>>0).toString(16)+(h2>>>0).toString(16)+'-'+bytes.length;
+}
 function songFromImport(imp){
   const s=imp.type==='midi'?parseMIDI(b64ToBuf(imp.b64),imp.title):imp.type==='ai'?buildAiSong(imp.data,imp.title).song:parseMusicXML(imp.xml,imp.title);
-  return Object.assign(s,{id:imp.id,key:imp.key||null,mod:imp.mod||0,size:imp.size||0});
+  return Object.assign(s,{id:imp.id,key:imp.key||null,mod:imp.mod||0,size:imp.size||0,hash:imp.hash||fingerprint(imp),rec:imp});
 }
 const newId=()=>'imp-'+Date.now().toString(36)+Math.random().toString(36).slice(2,7);
 async function loadImports(){
@@ -1467,7 +1475,21 @@ function badge(song,small){
   };
   return b;
 }
+// Doublons déjà présents (même contenu) : on garde celui rattaché au dossier, sinon celui qui a un record, sinon le plus ancien
+function findDupes(){
+  const groups=new Map();
+  for(const s of SONGS) if(s.imported&&s.hash){if(!groups.has(s.hash)) groups.set(s.hash,[]);groups.get(s.hash).push(s);}
+  const extra=[];
+  for(const g of groups.values()) if(g.length>1){
+    const keep=g.find(s=>s.key)||g.slice().sort((a,b)=>(bestOf(b.id)??-1)-(bestOf(a.id)??-1))[0];
+    extra.push(...g.filter(s=>s!==keep));
+  }
+  return extra;
+}
 function renderLibrary(){
+  const dupes=findDupes();
+  $('dupBar').classList.toggle('hidden',!dupes.length);
+  if(dupes.length) $('dupInfo').textContent=`⚠︎ ${dupes.length} partition${dupes.length>1?'s':''} en double`;
   const favs=new Set(store.get('favs',[])),recent=store.get('recent',[]);
   document.querySelectorAll('#libKind button').forEach(b=>b.classList.toggle('active',b.dataset.v===lib.kind));
   document.querySelectorAll('#libDiff button').forEach(b=>b.classList.toggle('active',+b.dataset.v===lib.diff));
@@ -1526,6 +1548,7 @@ function toggleLibrary(force){
 }
 $('songBtn').onclick=e=>{e.currentTarget.blur();toggleLibrary(true);};
 $('closeLib').onclick=()=>toggleLibrary(false);
+$('dupBtn').onclick=()=>{const d=findDupes();if(d.length) deleteImports(d);};
 $('libSearch').oninput=e=>{lib.q=e.target.value;renderLibrary();};
 document.querySelectorAll('#libKind button').forEach(b=>b.onclick=()=>{lib.kind=b.dataset.v;renderLibrary();});
 document.querySelectorAll('#libDiff button').forEach(b=>b.onclick=()=>{lib.diff=+b.dataset.v;renderLibrary();});
@@ -1550,6 +1573,8 @@ const SCORE_RE=/\.(mxl|musicxml|xml|midi?)$/i;
 async function importFiles(files,opts={}){
   const res={added:0,updated:0,same:0,skipped:0,errors:[]};let last=null;
   const existing=new Map(SONGS.filter(s=>s.imported&&s.key).map(s=>[s.key,s]));
+  const byHash=new Map(SONGS.filter(s=>s.imported&&s.hash).map(s=>[s.hash,s]));
+  res.dupes=0;res.linked=0;res.dupSongs=[];
   for(const f of files){
     const path=(opts.paths&&opts.paths.get(f))||f.webkitRelativePath||f.name;
     if(!SCORE_RE.test(f.name)){res.skipped++;continue;}
@@ -1559,9 +1584,18 @@ async function importFiles(files,opts={}){
       const title=f.name.replace(/\.[^.]+$/,'');let song,saved;
       if(/\.midi?$/i.test(f.name)){const buf=await f.arrayBuffer();song=parseMIDI(buf,title);saved={title,type:'midi',b64:bufToB64(buf)};}
       else{const xml=await readScoreFile(f);song=parseMusicXML(xml,title);saved={title:song.title,xml};}
+      const hash=fingerprint(saved),dup=byHash.get(hash);
+      if(dup&&dup!==prev){ // cette partition est déjà dans la bibliothèque
+        if(key&&!dup.key){ // importée à la main avant : on la rattache au dossier, sans doublon
+          Object.assign(dup,{key,mod:f.lastModified,size:f.size});
+          dup.rec=Object.assign({},dup.rec||saved,{id:dup.id,key,mod:f.lastModified,size:f.size,hash});
+          await saveImport(dup.rec);existing.set(key,dup);res.linked++;
+        }else{res.dupes++;res.dupSongs.push(dup);}
+        continue;
+      }
       const id=prev?prev.id:newId();
-      Object.assign(saved,{id,key,mod:f.lastModified,size:f.size});Object.assign(song,{id,key,mod:f.lastModified,size:f.size});
-      await saveImport(saved);
+      Object.assign(saved,{id,key,mod:f.lastModified,size:f.size,hash});Object.assign(song,{id,key,mod:f.lastModified,size:f.size,hash,rec:saved});
+      await saveImport(saved);byHash.set(hash,song);
       if(prev){SONGS[SONGS.indexOf(prev)]=song;if(SONG===prev) SONG=song;res.updated++;}else{SONGS.push(song);res.added++;}
       last=song;
     }catch(err){res.errors.push(f.name+' : '+err.message);}
@@ -1575,6 +1609,9 @@ $('fileIn').onchange=async e=>{
   if(pdf.length===files.length){toast("Les PDF et les photos ne contiennent qu'une image de la partition : l'app ne peut pas les lire. Cherche la version MusicXML ou MIDI du morceau (par ex. sur musescore.com).",7000);return;}
   if(files.length>1) toast(`Import de ${files.length} fichiers…`);
   const {res,last}=await importFiles(files);
+  if(files.length===1&&!last&&res.dupSongs.length){
+    const d=res.dupSongs[0];selectSong(d.id);toast(`« ${d.title} » est déjà dans la bibliothèque : pas de doublon créé.`,5000);return;
+  }
   if(files.length===1&&last){
     SONG=last;store.set('song',last.id);touchRecent(last.id);S.from=1;S.to=9999;layoutKey='';fillSongs();refreshUI();resetRun();
     const nL=last.notes.filter(n=>n.hand==='L').length;
@@ -1582,7 +1619,7 @@ $('fileIn').onchange=async e=>{
   }else{
     fillSongs();
     const pl=n=>n>1?'s':'';
-    toast(`${res.added} partition${pl(res.added)} importée${pl(res.added)}`+(res.skipped?` · ${res.skipped} fichier${pl(res.skipped)} ignoré${pl(res.skipped)}`:'')
+    toast(`${res.added} partition${pl(res.added)} importée${pl(res.added)}`+(res.dupes?` · ${res.dupes} déjà présente${pl(res.dupes)}`:'')+(res.skipped?` · ${res.skipped} fichier${pl(res.skipped)} ignoré${pl(res.skipped)}`:'')
       +(res.errors.length?` · illisible${pl(res.errors.length)} : ${res.errors.slice(0,3).join(' ; ')}`:''),6000);
   }
 };
@@ -1598,7 +1635,9 @@ async function finishFolderSync(name,files,opts){
   toast(`Synchronisation de « ${name||store.get('folderName','')} »…`);
   const {res}=await importFiles(files,{...opts,folder:true});
   store.set('folderSync',Date.now());renderFolder();fillSongs();
-  toast(`Dossier synchronisé : ${plural(res.added,'nouvelle')}, ${plural(res.updated,'mise')} à jour, ${plural(res.same,'inchangée')}`+(res.errors.length?` · ${plural(res.errors.length,'illisible')}`:''),6000);
+  toast(`Dossier synchronisé : ${plural(res.added,'nouvelle')}, ${plural(res.updated,'mise')} à jour, ${plural(res.same,'inchangée')}`
+    +(res.linked?` · ${plural(res.linked,'déjà présente')} rattachée${res.linked>1?'s':''} au dossier`:'')+(res.dupes?` · ${plural(res.dupes,'doublon')} ignoré${res.dupes>1?'s':''}`:'')
+    +(res.errors.length?` · ${plural(res.errors.length,'illisible')}`:''),7000);
 }
 async function syncFromHandle(h){
   const files=[],paths=new Map();
