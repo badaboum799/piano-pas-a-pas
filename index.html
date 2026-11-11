@@ -254,6 +254,8 @@ body:has(.settings:not(.hidden)) #toast{top:auto;bottom:calc(24px + env(safe-are
       <h3>Affichage</h3>
       <div class="opt"><div class="opt-txt">Nom des notes</div>
         <div class="seg" data-key="notation"><button data-v="fr">Do Ré Mi</button><button data-v="en">C D E</button></div></div>
+      <label class="opt"><div class="opt-txt">Repérer les répétitions de la main gauche<small>Un crochet « ×4 » englobe les mesures qui se répètent, avec un compteur « 2/4 » pendant le jeu</small></div><input type="checkbox" id="optRepeats" class="switch"></label>
+      <label class="opt"><div class="opt-txt">Estomper les répétitions<small>Après la première fois, les notes répétées sont plus discrètes : on les joue de mémoire</small></div><input type="checkbox" id="optFade" class="switch"></label>
       <label class="opt"><div class="opt-txt">Afficher les noms sur les notes et sur le clavier</div><input type="checkbox" id="optNames" class="switch"></label>
     </section>
 
@@ -697,7 +699,7 @@ const LEVELS=[
   {name:'Intermédiaire',hands:'RL',simp:2,mode:'tempo',speed:.8},
   {name:'Avancé',hands:'RL',simp:3,mode:'tempo',speed:1},
 ];
-const S=Object.assign({hands:'R',simp:1,mode:'wait',speed:.6,names:true,notation:'fr',reverb:'room',midiSound:'piano',accomp:true,appSound:true,from:1,to:9999,level:0},
+const S=Object.assign({hands:'R',simp:1,mode:'wait',speed:.6,names:true,showRepeats:true,fadeRepeats:false,notation:'fr',reverb:'room',midiSound:'piano',accomp:true,appSound:true,from:1,to:9999,level:0},
   store.get('settings',{}),{from:1,to:9999});
 const SONGS=SONG_DEFS.map(makeSong);
 for(const [id,t] of Object.entries(store.get('titleOverride',{}))){const s=SONGS.find(x=>x.id===id);if(s){s.origTitle=s.title;s.title=t;}}
@@ -772,6 +774,48 @@ function simplify(notes,simp,song){
 }
 
 /* ================= Préparation d'une partie ================= */
+/* ================= Répétitions de la main gauche =================
+   Repère, mesure par mesure, ce que joue la main gauche (notes + rythme) :
+   - une mesure répétée à l'identique (×2, ×3…) ;
+   - un motif de 2 mesures qui revient (A B A B…) ;
+   - la même forme déplacée plus haut ou plus bas (mêmes écarts, même rythme).
+   Calculé sur la partition telle qu'elle est jouée (version Mélodie / Simplifiée / Complète). */
+function findRepeats(notes,song,fromM,toM){
+  const ms=song.measureStarts,sig=[],shape=[],idx=[];
+  for(let m=fromM;m<=toM;m++){
+    const a=ms[m],b=m+1<ms.length?ms[m+1]:song.length;
+    const ln=notes.filter(n=>n.hand==='L'&&n.start>=a-1e-6&&n.start<b-1e-6);
+    idx.push(m);
+    if(!ln.length){sig.push(null);shape.push(null);continue;}
+    const low=Math.min(...ln.map(n=>n.midi)),r=x=>Math.round(x*48);
+    const ev=ln.map(n=>[r(n.start-a),r(n.dur)]).map(String);
+    sig.push(ln.map((n,i)=>ev[i]+':'+n.midi).sort().join(' ')+'|'+r(b-a));
+    // « même forme » seulement pour un vrai motif (au moins 3 attaques dans la mesure), sinon c'est trivial
+    const onsets=new Set(ln.map(n=>r(n.start-a))).size;
+    shape.push(onsets>=3?ln.map((n,i)=>ev[i]+':'+(n.midi-low)).sort().join(' ')+'|'+r(b-a):null);
+  }
+  const out=[],n=sig.length,S2=sig.map(x=>x||'∅'); // une mesure sans main gauche compte comme un silence dans un motif
+  const period=(i,L)=>{for(let p=1;p<L;p++) if(L%p===0){let ok=true;for(let k=p;k<L;k++) if(S2[i+k]!==S2[i+k-p]){ok=false;break;}if(ok) return true;}return false;};
+  for(let i=0;i<n;){
+    if(!sig[i]){i++;continue;}
+    let found=null;
+    for(const L of [1,2,4,3]){ // motif d'1, 2, 4 ou 3 mesures, répété au moins 2 fois de suite
+      if(i+2*L>n||(L>1&&period(i,L))) continue;
+      let c=1;
+      while(i+(c+1)*L<=n){let same=true;for(let k=0;k<L;k++) if(S2[i+c*L+k]!==S2[i+k]){same=false;break;}if(!same) break;c++;}
+      if(c>=2){found={m0:idx[i],len:L,count:c,kind:'exact'};break;}
+    }
+    if(found){out.push(found);i+=found.len*found.count;continue;}
+    let j=i+1;while(j<n&&shape[j]&&shape[j]===shape[i]) j++;
+    if(shape[i]&&j-i>=2){out.push({m0:idx[i],len:1,count:j-i,kind:'shape'});i=j;continue;}
+    i++;
+  }
+  for(const b of out){ // bornes en temps et numéro de répétition de chaque note
+    b.start=ms[b.m0];const e=b.m0+b.len*b.count;b.end=e<ms.length?ms[e]:song.length;b.rep=(b.end-b.start)/b.count;
+    for(const nt of notes) if(nt.hand==='L'&&nt.start>=b.start-1e-6&&nt.start<b.end-1e-6) nt.repIdx=Math.floor((nt.start-b.start+1e-6)/b.rep);
+  }
+  return out;
+}
 function resetRun(){
   const song=SONG,nM=song.measureStarts.length;
   const from=Math.max(1,Math.min(S.from,nM)),to=Math.max(from,Math.min(S.to,nM));
@@ -786,6 +830,7 @@ function resetRun(){
   R={notes,play,acc,groups,gi:0,ai:0,mi:0,pos:fromB-countIn,nextClick:fromB-countIn,countIn,startBeat:fromB,
     endBeat:notes.length?Math.max(...notes.map(n=>n.start+n.dur)):fromB,playing:false,finished:false,
     hits:0,perfect:0,wrong:0,misses:0,combo:0,maxCombo:0,perMeasure:{},waiting:false,from,to,full:from===1&&to===nM};
+  R.repeats=findRepeats(notes,song,from-1,to-1);
   document.getElementById('results').classList.add('hidden');
   updatePlayBtn();buildTimeline();
 }
@@ -1205,6 +1250,7 @@ function draw(){
   }
   // notes qui tombent
   ctx.save();ctx.beginPath();ctx.rect(0,0,W,hitY);ctx.clip();
+  if(S.showRepeats&&S.hands.includes('L')&&R.repeats.length) drawRepeatZones(L,hitY,ppb,pos,pulse);
   for(const n of R.notes){
     const yB=hitY-(n.start-pos)*ppb,yT=yB-n.dur*ppb;
     if(yT>hitY||yB<0) continue;
@@ -1213,6 +1259,8 @@ function draw(){
     const blk=isBlack(n.midi); // touche noire : même couleur de main, en plus foncé
     let col=blk?HAND_SHARP[n.hand]:HAND[n.hand];
     ctx.globalAlpha=n.play?1:(S.mode==='listen'?.6:.25);
+    const faded=S.fadeRepeats&&n.repIdx>0&&n.hand==='L'&&S.hands.includes('L'); // répétition : à jouer de mémoire
+    if(faded) ctx.globalAlpha*=.4;
     if(n.hit) col=blk?'#1f9e6c':'#3ddc97';else if(n.missed) col='#59607f';
     const active=(n.play||S.mode==='listen')&&pos>=n.start-1e-3&&pos<n.start+n.dur;
     const toPlay=active&&!n.missed&&!n.hit&&(n.play||S.mode==='listen');
@@ -1224,13 +1272,14 @@ function draw(){
     ctx.fillStyle=col;rr(x,yB-h,w,h,Math.min(7,w/3));ctx.fill();ctx.shadowBlur=0;
     if(toPlay){ctx.strokeStyle='#fff';ctx.lineWidth=2.5+1.5*pulse;ctx.stroke();}
     else if(n.play&&!n.hit&&!n.missed){ctx.strokeStyle='rgba(255,255,255,.35)';ctx.lineWidth=1;ctx.stroke();}
-    if(S.names&&n.play&&h>17&&w>13){
+    if(S.names&&n.play&&h>17&&w>13&&!faded){
       ctx.globalAlpha=1;ctx.fillStyle=blk?'rgba(255,255,255,.95)':'rgba(10,12,25,.85)';ctx.textAlign='center';
       ctx.font=`700 ${Math.min(13,w*.42)}px -apple-system,sans-serif`;ctx.fillText(fmtName(n.midi),k.x+k.w/2,yB-6);
     }
     ctx.globalAlpha=1;
   }
   ctx.restore();
+  if(S.showRepeats&&S.hands.includes('L')&&R.repeats.length) drawRepeatLabels(L,hitY,ppb,pos,pulse);
   // ligne de frappe
   const grad=ctx.createLinearGradient(0,hitY-14,0,hitY);grad.addColorStop(0,'rgba(124,140,255,0)');grad.addColorStop(1,'rgba(124,140,255,.35)');
   ctx.fillStyle=grad;ctx.fillRect(0,hitY-14,W,14);ctx.fillStyle='#7c8cff';ctx.fillRect(0,hitY-2,W,2);
@@ -1289,10 +1338,51 @@ function draw(){
     const handsTxt=S.hands==='R'?'main droite (bleu)':S.hands==='L'?'main gauche (orange)':'les deux mains (droite en bleu, gauche en orange)';
     y=wrapText((S.mode==='listen'?'Tu peux jouer par-dessus : ':'Tu joues : ')+handsTxt+' · partition '+['','mélodie','simplifiée','complète'][S.simp]+' · vitesse '+Math.round(S.speed*100)+' %',W/2,y,maxW,fs*1.5);
     ctx.fillStyle='rgba(232,234,246,.9)';
+    if(S.showRepeats&&S.hands.includes('L')&&R.repeats.length){ctx.fillStyle='#ffc79c';y=wrapText(`🔁 Main gauche : ${R.repeats.length} passage${R.repeats.length>1?'s':''} répété${R.repeats.length>1?'s':''} repéré${R.repeats.length>1?'s':''} (${R.repeats.map(b=>'×'+b.count).join(', ')})`,W/2,y+4,maxW,fs*1.5);ctx.fillStyle='rgba(232,234,246,.9)';}
     y=wrapText('Appuie sur ▶ Jouer pour commencer.',W/2,y+4,maxW,fs*1.5);
     if(W<600&&H>W*1.2){ctx.fillStyle='#ffd166';wrapText('Astuce : tourne le téléphone pour avoir un clavier plus grand.',W/2,y+8,maxW,fs*1.5);}
   }
   drawBadge();
+}
+// Répétitions de la main gauche : une zone orangée englobe les notes répétées (dessinée sous les notes),
+// des pointillés séparent chaque répétition, et une étiquette « ×4 » / compteur « 2/4 » (dessinée par-dessus).
+function repeatGeom(b,L,hitY,ppb,pos){
+  const yS=hitY-(b.start-pos)*ppb,yE=hitY-(b.end-pos)*ppb;
+  if(yE>hitY||yS<0) return null;
+  const ln=R.notes.filter(n=>n.hand==='L'&&n.start>=b.start-1e-6&&n.start<b.end-1e-6&&L.map[n.midi]);
+  if(!ln.length) return null;
+  const x0=Math.min(...ln.map(n=>L.map[n.midi].x))-6,x1=Math.max(...ln.map(n=>L.map[n.midi].x+L.map[n.midi].w))+6;
+  const inside=pos>=b.start-1e-6&&pos<b.end,cur=inside?Math.floor((pos-b.start)/b.rep):-1;
+  return {yS,yE,x0,x1,inside,cur};
+}
+function drawRepeatZones(L,hitY,ppb,pos,pulse){
+  for(const b of R.repeats){
+    const g=repeatGeom(b,L,hitY,ppb,pos);if(!g) continue;
+    ctx.fillStyle=hexA('#ff9f5a',g.inside?.09:.06);ctx.fillRect(g.x0,g.yE,g.x1-g.x0,g.yS-g.yE);
+    if(g.inside){ctx.fillStyle=hexA('#ff9f5a',.08+.05*pulse);const ya=g.yS-g.cur*b.rep*ppb,yb=g.yS-(g.cur+1)*b.rep*ppb;ctx.fillRect(g.x0,yb,g.x1-g.x0,ya-yb);}
+    ctx.setLineDash([6,5]);ctx.lineWidth=1.5;ctx.strokeStyle=hexA('#ff9f5a',.7);
+    ctx.strokeRect(g.x0,g.yE,g.x1-g.x0,g.yS-g.yE);
+    for(let k=1;k<b.count;k++){const y=g.yS-k*b.rep*ppb;ctx.beginPath();ctx.moveTo(g.x0,y);ctx.lineTo(g.x1,y);ctx.stroke();}
+    ctx.setLineDash([]);
+  }
+}
+function drawRepeatLabels(L,hitY,ppb,pos,pulse){
+  ctx.save();ctx.beginPath();ctx.rect(0,0,W,hitY);ctx.clip();
+  for(const b of R.repeats){
+    const g=repeatGeom(b,L,hitY,ppb,pos);if(!g) continue;
+    const txt=g.inside?`${g.cur+1}/${b.count}`:`×${b.count}`,sub=b.kind==='shape'?'même forme':b.len>1?`motif de ${b.len} mesures`:'';
+    ctx.font='800 24px -apple-system,sans-serif';const tw=ctx.measureText(txt).width;
+    ctx.font='600 10px -apple-system,sans-serif';const sw=sub?ctx.measureText(sub).width:0;
+    const pw=Math.max(tw,sw)+18,ph=sub?46:34;
+    const ly=Math.min(g.yS,hitY)-8;                                   // au début du bloc, ou sur la ligne de frappe pendant qu'on y est
+    if(ly-ph<Math.max(g.yE,0)-20) continue;
+    const px=g.x0-pw-6>=4?g.x0-pw-6:Math.min(W-pw-4,g.x1+6);           // à gauche de la zone, sinon à droite
+    ctx.fillStyle='rgba(15,18,32,.9)';rr(px,ly-ph,pw,ph,10);ctx.fill();
+    ctx.strokeStyle=hexA('#ff9f5a',g.inside?.6+.4*pulse:.9);ctx.lineWidth=2;ctx.stroke();
+    ctx.textAlign='center';ctx.fillStyle='#ffc79c';ctx.font='800 24px -apple-system,sans-serif';ctx.fillText(txt,px+pw/2,ly-(sub?20:9));
+    if(sub){ctx.fillStyle='rgba(255,199,156,.85)';ctx.font='600 10px -apple-system,sans-serif';ctx.fillText(sub,px+pw/2,ly-7);}
+  }
+  ctx.restore();
 }
 // Badge permanent en haut à gauche : mode, niveau et vitesse, toujours visibles même pendant le jeu
 function drawBadge(){
@@ -1406,7 +1496,7 @@ window.addEventListener('keyup',e=>{const off=CODE_MAP[e.code];if(off!==undefine
 /* ================= Interface ================= */
 const $=id=>document.getElementById(id);
 function toast(t,ms=2600){const el=$("toast");el.textContent=t;el.classList.add("show");clearTimeout(toast._t);toast._t=setTimeout(()=>el.classList.remove("show"),ms);}
-function saveSettings(){const {hands,simp,prevSimp,mode,speed,names,notation,reverb,midiSound,accomp,appSound,level}=S;store.set('settings',{hands,simp,prevSimp,mode,speed,names,notation,reverb,midiSound,accomp,appSound,level});}
+function saveSettings(){const {hands,simp,prevSimp,mode,speed,names,notation,reverb,midiSound,accomp,appSound,level,showRepeats,fadeRepeats}=S;store.set('settings',{showRepeats,fadeRepeats,hands,simp,prevSimp,mode,speed,names,notation,reverb,midiSound,accomp,appSound,level});}
 // En mode Écoute, le niveau reste affiché : seuls les mains et la vitesse comptent (la partition est complète).
 function matchLevel(){return LEVELS.findIndex(l=>l.hands===S.hands&&Math.abs(l.speed-S.speed)<.001&&(S.mode==='listen'||(l.simp===S.simp&&l.mode===S.mode)));}
 function applyLevel(i){
@@ -1447,6 +1537,8 @@ $('speedUp').onclick=e=>{e.currentTarget.blur();setSpeed(S.speed+.05);};
 $('fromM').onchange=e=>{S.from=Math.max(1,parseInt(e.target.value)||1);if(S.to<S.from) S.to=S.from;refreshUI();resetRun();};
 $('toM').onchange=e=>{S.to=Math.max(1,parseInt(e.target.value)||1);if(S.to<S.from) S.from=S.to;refreshUI();resetRun();};
 $('optNames').onchange=e=>{S.names=e.target.checked;saveSettings();};
+$('optRepeats').onchange=e=>{S.showRepeats=e.target.checked;saveSettings();};
+$('optFade').onchange=e=>{S.fadeRepeats=e.target.checked;saveSettings();};
 $('optAccomp').onchange=e=>{S.accomp=e.target.checked;saveSettings();};
 $('optSound').onchange=e=>{S.appSound=e.target.checked;saveSettings();};
 // la lecture par IA a été retirée : on efface une éventuelle clé OpenRouter restée sur l'appareil
@@ -1741,7 +1833,7 @@ function refreshUI(){
   $('speed').value=Math.round(S.speed*100);$('speedLbl').textContent=Math.round(S.speed*100)+' %';
   const nM=SONG.measureStarts.length;
   $('fromM').max=nM;$('toM').max=nM;$('fromM').value=Math.min(S.from,nM);$('toM').value=Math.min(S.to,nM);$('nMeas').textContent='/ '+nM;
-  $('optNames').checked=S.names;$('optAccomp').checked=S.accomp;$('optSound').checked=S.appSound;
+  $('optNames').checked=S.names;$('optRepeats').checked=S.showRepeats;$('optFade').checked=S.fadeRepeats;$('optAccomp').checked=S.accomp;$('optSound').checked=S.appSound;
   $('octLbl').textContent=octName(octave);
   $('scaleLbl').textContent=[0,2,4,5,7,9,11,0].map(fmtName).join(' ');
   const chip=$('rangeChip'),partial=S.from>1||S.to<nM;
