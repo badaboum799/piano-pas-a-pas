@@ -276,7 +276,7 @@ body:has(.settings:not(.hidden)) #toast{top:auto;bottom:calc(24px + env(safe-are
     <div class="lib-filters">
       <div class="seg" id="libKind"><button data-v="all">Tous</button><button data-v="fav">⭐ Favoris</button><button data-v="builtin">Intégrés</button><button data-v="imported">Importés</button></div>
       <div class="seg" id="libDiff"><button data-v="0">Toutes</button><button data-v="1">1</button><button data-v="2">2</button><button data-v="3">3</button><button data-v="4">4</button><button data-v="5">5</button></div>
-      <select id="libSort" aria-label="Trier"><option value="recent">Récents d'abord (joués, puis ajoutés)</option><option value="diff">Plus facile d'abord</option><option value="title">Titre (A → Z)</option><option value="best">Meilleur record</option></select>
+      <select id="libSort" aria-label="Trier"><option value="recent">Joués récemment</option><option value="added">Ajoutés récemment</option><option value="diff">Plus facile d'abord</option><option value="title">Titre (A → Z)</option><option value="best">Meilleur record</option></select>
     </div>
     <div id="dupBar" class="folder-bar hidden"><span id="dupInfo"></span><button id="dupBtn" class="btn">Supprimer les doublons</button></div>
     <div id="libRecent"></div>
@@ -838,7 +838,7 @@ function startPlay(){
   audio();
   if(!R||R.finished) resetRun();
   if(!R.play.length){toast("Aucune note pour cette main dans ce morceau.");return;}
-  R.playing=true;updatePlayBtn();
+  R.playing=true;updatePlayBtn();touchRecent(SONG.id); // « joué récemment » = lecture réellement lancée
 }
 function togglePlay(){ if(R&&R.playing){R.playing=false;updatePlayBtn();} else startPlay(); }
 function updatePlayBtn(){document.getElementById('playBtn').textContent=R&&R.playing?'❚❚ Pause':(R&&R.pos>R.startBeat-R.countIn+1e-3&&!R.finished?'▶ Reprendre':'▶ Jouer');}
@@ -1573,7 +1573,7 @@ function handAdvice(d){
 }
 function selectSong(id){
   const s=SONGS.find(x=>x.id===id);if(!s) return;
-  SONG=s;store.set('song',s.id);touchRecent(s.id);S.from=1;S.to=9999;layoutKey='';refreshUI();resetRun();fillSongs();
+  SONG=s;store.set('song',s.id);S.from=1;S.to=9999;layoutKey='';refreshUI();resetRun();fillSongs();
   const d=difficultyOf(s);toast(`« ${s.title} » · difficulté ${d.level}/5 (${DIFF_NAMES[d.level].toLowerCase()}). ${handAdvice(d)}`,4500);
 }
 function badge(song,small){
@@ -1635,7 +1635,9 @@ function renderLibrary(){
     &&(lib.kind==='all'||(lib.kind==='fav'&&favs.has(s.id))||(lib.kind==='builtin'&&!s.imported)||(lib.kind==='imported'&&s.imported))
     &&(!lib.diff||difficultyOf(s).level===lib.diff));
   const rank=id=>{const i=recent.indexOf(id);return i<0?999:i;};
-  if(lib.sort==='recent') list.sort((a,b)=>rank(a.id)-rank(b.id)||(b.added||0)-(a.added||0)); // joués récemment, puis derniers ajoutés
+  const byTitle=(a,b)=>a.title.localeCompare(b.title,'fr');
+  if(lib.sort==='recent') list.sort((a,b)=>rank(a.id)-rank(b.id)||byTitle(a,b));              // joués récemment d'abord
+  else if(lib.sort==='added') list.sort((a,b)=>(b.added||0)-(a.added||0)||byTitle(a,b));      // derniers ajoutés d'abord (morceaux intégrés à la fin)
   else if(lib.sort==='diff') list.sort((a,b)=>difficultyOf(a).level-difficultyOf(b).level||computeDifficulty(a).raw-computeDifficulty(b).raw);
   else if(lib.sort==='title') list.sort((a,b)=>a.title.localeCompare(b.title,'fr'));
   else list.sort((a,b)=>(bestOf(b.id)??-1)-(bestOf(a.id)??-1));
@@ -1755,7 +1757,7 @@ $('fileIn').onchange=async e=>{
     const d=res.dupSongs[0];selectSong(d.id);toast(`« ${d.title} » est déjà dans la bibliothèque : pas de doublon créé.`,5000);return;
   }
   if(files.length===1&&last){
-    SONG=last;store.set('song',last.id);touchRecent(last.id);S.from=1;S.to=9999;layoutKey='';fillSongs();refreshUI();resetRun();
+    SONG=last;store.set('song',last.id);S.from=1;S.to=9999;layoutKey='';fillSongs();refreshUI();resetRun();
     const nL=last.notes.filter(n=>n.hand==='L').length;
     toast(`« ${last.title} » importé : ${last.notes.length} notes, ${last.measureStarts.length} mesures${nL?'':' (tout en main droite)'}`);
   }else{
