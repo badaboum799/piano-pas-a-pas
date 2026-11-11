@@ -1685,7 +1685,7 @@ function toggleLibrary(force){
   const L=$('library'),show=force!==undefined?force:L.classList.contains('hidden');
   if(show&&R&&R.playing) togglePlay();
   L.classList.toggle('hidden',!show);
-  if(show){renderLibrary();L.scrollTop=0;}
+  if(show){renderLibrary();L.scrollTop=0;autoSync();}
 }
 $('songBtn').onclick=e=>{e.currentTarget.blur();toggleLibrary(true);};
 $('closeLib').onclick=()=>toggleLibrary(false);
@@ -1772,14 +1772,23 @@ function renderFolder(){
   if(name) $('folderInfo').textContent=`📁 ${name}`+(t?` · synchronisé le ${new Date(t).toLocaleDateString('fr-FR')} à ${new Date(t).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}`:'');
   $('folderBtn').textContent=name?'📁 Changer de dossier':'📁 Lier un dossier';
 }
+let syncBusy=false,syncQuiet=false,syncPending=0;
+function setSyncBusy(on){
+  syncBusy=on;const b=$('syncBtn');b.disabled=on;b.textContent=on?'⏳ Synchronisation…':'🔄 Synchroniser';
+  clearTimeout(setSyncBusy._t);if(on) setSyncBusy._t=setTimeout(()=>setSyncBusy(false),60000); // sécurité
+}
 async function finishFolderSync(name,files,opts){
   if(name) store.set('folderName',name);
-  toast(`Synchronisation de « ${name||store.get('folderName','')} »…`);
+  if(!syncQuiet) toast(`Synchronisation de « ${name||store.get('folderName','')} »…`);
   const {res}=await importFiles(files,{...opts,folder:true});
-  store.set('folderSync',Date.now());renderFolder();fillSongs();
+  store.set('folderSync',Date.now());renderFolder();fillSongs();setSyncBusy(false);
+  const quiet=syncQuiet;syncQuiet=false;
+  if(quiet&&!res.added&&!res.updated&&!res.errors.length&&!syncPending) return; // synchro automatique sans nouveauté : pas de message
   toast(`Dossier synchronisé : ${plural(res.added,'nouvelle')}, ${plural(res.updated,'mise')} à jour, ${plural(res.same,'inchangée')}`
     +(res.linked?` · ${plural(res.linked,'déjà présente')} rattachée${res.linked>1?'s':''} au dossier`:'')+(res.dupes?` · ${plural(res.dupes,'doublon')} ignoré${res.dupes>1?'s':''}`:'')
-    +(res.errors.length?` · ${plural(res.errors.length,'illisible')}`:''),7000);
+    +(res.errors.length?` · ${plural(res.errors.length,'illisible')}`:'')
+    +(syncPending?` · ${plural(syncPending,'fichier')} encore en cours de téléchargement depuis iCloud : resynchronise dans un moment`:''),8000);
+  syncPending=0;
 }
 async function syncFromHandle(h){
   const files=[],paths=new Map();
@@ -1793,7 +1802,7 @@ async function syncFromHandle(h){
   await finishFolderSync(h.name,files,{paths});
 }
 async function pickFolder(){
-  if(window.__nativeFolder){window.webkit.messageHandlers.folder.postMessage('pick');return;} // app iPad
+  if(window.__nativeFolder){syncQuiet=false;window.webkit.messageHandlers.folder.postMessage('pick');return;} // app iPad
   if(window.showDirectoryPicker){ // Chrome / Edge sur ordinateur : accès permanent au dossier
     try{const h=await showDirectoryPicker({id:'partitions',mode:'read'});try{await idb.set('folderHandle',h);}catch(e){}await syncFromHandle(h);}
     catch(e){if(e.name!=='AbortError') toast('Dossier inaccessible : '+e.message);}
@@ -1801,30 +1810,45 @@ async function pickFolder(){
   }
   $('dirIn').click(); // autres navigateurs : on choisit le dossier à chaque synchronisation
 }
-async function syncFolder(){
+async function syncFolder(quiet){
+  if(syncBusy) return;                      // une synchro est déjà en cours : on n'en lance pas une deuxième
+  syncQuiet=!!quiet;setSyncBusy(true);
+  try{await runSync(quiet);}catch(e){setSyncBusy(false);if(!quiet) toast('Synchronisation impossible : '+e.message);}
+}
+async function runSync(quiet){
   if(window.__nativeFolder){window.webkit.messageHandlers.folder.postMessage('sync');return;}
   if(window.showDirectoryPicker){
     let h=null;try{h=await idb.get('folderHandle');}catch(e){}
     if(!h) return pickFolder();
-    let perm=await h.queryPermission({mode:'read'});if(perm!=='granted') perm=await h.requestPermission({mode:'read'});
-    if(perm!=='granted'){toast("L'accès au dossier a été refusé.");return;}
+    let perm=await h.queryPermission({mode:'read'});
+    if(perm!=='granted'&&quiet){setSyncBusy(false);return;} // pas d'autorisation sans geste de l'utilisateur
+    if(perm!=='granted') perm=await h.requestPermission({mode:'read'});
+    if(perm!=='granted'){setSyncBusy(false);toast("L'accès au dossier a été refusé.");return;}
     return syncFromHandle(h);
   }
-  $('dirIn').click();
+  setSyncBusy(false);if(!quiet) $('dirIn').click();
 }
 $('dirIn').onchange=e=>{
   const files=[...e.target.files];e.target.value='';if(!files.length) return;
   finishFolderSync((files[0].webkitRelativePath||'').split('/')[0]||'Dossier',files,{});
 };
 $('folderBtn').onclick=e=>{e.currentTarget.blur();pickFolder();};
-$('syncBtn').onclick=e=>{e.currentTarget.blur();syncFolder();};
+$('syncBtn').onclick=e=>{e.currentTarget.blur();syncFolder(false);};
+// Synchro automatique (discrète) au démarrage et à l'ouverture de la Bibliothèque, au plus une fois par minute
+function autoSync(){
+  if(!store.get('folderName',null)||syncBusy) return;
+  if(Date.now()-(store.get('folderSync',0)||0)<60000) return;
+  if(!window.__nativeFolder&&!window.showDirectoryPicker) return;
+  syncFolder(true);
+}
 // L'app iPad lit le dossier elle-même et envoie les fichiers un par un
 let nativeBatch=null;
 window.__folderBegin=name=>{nativeBatch={name,files:[]};};
 window.__folderFile=f=>{if(!nativeBatch) return;const bytes=new Uint8Array(b64ToBuf(f.b64));
   const file=new File([bytes],f.name,{lastModified:f.mod});nativeBatch.files.push(file);(nativeBatch.paths=nativeBatch.paths||new Map()).set(file,f.path);};
-window.__folderEnd=()=>{if(!nativeBatch) return;const b=nativeBatch;nativeBatch=null;finishFolderSync(b.name,b.files,{paths:b.paths||new Map()});};
-window.__folderError=msg=>{nativeBatch=null;toast('Dossier : '+msg,6000);};
+window.__folderEnd=info=>{if(!nativeBatch) return;const b=nativeBatch;nativeBatch=null;syncPending=(info&&info.failed)||0;finishFolderSync(b.name,b.files,{paths:b.paths||new Map()});};
+window.__folderCancel=()=>setSyncBusy(false);
+window.__folderError=msg=>{nativeBatch=null;setSyncBusy(false);toast('Dossier : '+msg,6000);};
 
 function refreshUI(){
   document.querySelectorAll('.levels button').forEach(b=>b.classList.toggle('active',+b.dataset.i===S.level));
@@ -1841,7 +1865,7 @@ function refreshUI(){
 }
 
 S.level=matchLevel();
-fillSongs();refreshUI();resize();resetRun();initMIDI();prefetchSamples();requestAnimationFrame(frame);renderFolder();loadImports();
+fillSongs();refreshUI();resize();resetRun();initMIDI();prefetchSamples();requestAnimationFrame(frame);renderFolder();loadImports().then(()=>setTimeout(autoSync,1500));
 window.__piano={S,get R(){return R;},noteOn,noteOff,parseMusicXML,get SONG(){return SONG;}};
 </script>
 </body>

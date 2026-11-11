@@ -43,6 +43,10 @@ final class FolderBridge: NSObject, UIDocumentPickerDelegate {
         sync(url)
     }
 
+    func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+        call("__folderCancel", nil)
+    }
+
     private func resolveBookmark() -> URL? {
         guard let data = UserDefaults.standard.data(forKey: bookmarkKey) else { return nil }
         var stale = false
@@ -53,42 +57,68 @@ final class FolderBridge: NSObject, UIDocumentPickerDelegate {
         return url
     }
 
-    // MARK: synchronisation : lecture du dossier (et de ses sous-dossiers) en arrière-plan
+    // MARK: synchronisation
+    // Les fichiers récemment ajoutés dans iCloud Drive ne sont souvent pas encore téléchargés sur l'iPad :
+    // on les liste, on demande leur téléchargement, puis on lit chacun « en coordination »,
+    // ce qui attend que le fichier soit réellement disponible au lieu de l'ignorer.
+    private var syncing = false
     private func sync(_ folder: URL) {
+        if syncing { return }
+        syncing = true
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
             let ok = folder.startAccessingSecurityScopedResource()
             defer { if ok { folder.stopAccessingSecurityScopedResource() } }
-            var files: [[String: Any]] = []
-            var notDownloaded = 0
-            let keys: [URLResourceKey] = [.isRegularFileKey, .contentModificationDateKey]
-            let coordinator = NSFileCoordinator()
-            var coordError: NSError?
-            coordinator.coordinate(readingItemAt: folder, options: [], error: &coordError) { dir in
-                guard let walker = FileManager.default.enumerator(at: dir, includingPropertiesForKeys: keys, options: [.skipsHiddenFiles]) else { return }
+            let root = folder.resolvingSymlinksInPath().standardizedFileURL
+            var candidates: [URL] = []
+            var listError: NSError?
+            NSFileCoordinator().coordinate(readingItemAt: folder, options: [], error: &listError) { dir in
+                guard let walker = FileManager.default.enumerator(at: dir, includingPropertiesForKeys: [.isRegularFileKey], options: []) else { return }
                 for case let url as URL in walker {
-                    // fichier iCloud pas encore téléchargé : on demande le téléchargement pour la prochaine fois
-                    if url.pathExtension == "icloud" {
-                        notDownloaded += 1
-                        try? FileManager.default.startDownloadingUbiquitousItem(at: url)
-                        continue
-                    }
-                    guard self.extensions.contains(url.pathExtension.lowercased()),
-                          let values = try? url.resourceValues(forKeys: Set(keys)), values.isRegularFile == true,
-                          let data = try? Data(contentsOf: url) else { continue }
-                    let path = url.path.replacingOccurrences(of: dir.path + "/", with: "")
-                    let mod = Int((values.contentModificationDate ?? Date()).timeIntervalSince1970 * 1000)
-                    files.append(["path": path, "name": url.lastPathComponent, "mod": mod, "b64": data.base64EncodedString()])
+                    var name = url.lastPathComponent
+                    var real = url
+                    // ancien format iCloud : « .Morceau.mxl.icloud » = fichier pas encore téléchargé
+                    if name.hasPrefix(".") && name.hasSuffix(".icloud") {
+                        name = String(name.dropFirst().dropLast(7))
+                        real = url.deletingLastPathComponent().appendingPathComponent(name)
+                    } else if name.hasPrefix(".") { continue }
+                    if self.extensions.contains(real.pathExtension.lowercased()) { candidates.append(real) }
                 }
             }
+            if let listError {
+                DispatchQueue.main.async { self.syncing = false; self.call("__folderError", listError.localizedDescription) }
+                return
+            }
+            // 1) demander le téléchargement de tout ce qui n'est pas encore sur l'iPad
+            for url in candidates {
+                let v = try? url.resourceValues(forKeys: [.isUbiquitousItemKey, .ubiquitousItemDownloadingStatusKey])
+                if v?.isUbiquitousItem == true && v?.ubiquitousItemDownloadingStatus != .current {
+                    try? FileManager.default.startDownloadingUbiquitousItem(at: url)
+                }
+            }
+            // 2) lire chaque fichier (la lecture coordonnée attend la fin du téléchargement)
+            var files: [[String: Any]] = []
+            var failed = 0
+            for url in candidates {
+                var data: Data?
+                var err: NSError?
+                NSFileCoordinator().coordinate(readingItemAt: url, options: [], error: &err) { u in data = try? Data(contentsOf: u) }
+                var tries = 0
+                while data == nil && tries < 20 { // jusqu'à 10 s de plus si le fichier arrive encore
+                    Thread.sleep(forTimeInterval: 0.5); tries += 1
+                    data = try? Data(contentsOf: url)
+                }
+                guard let data else { failed += 1; continue }
+                let mod = (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? Date()
+                let parts = url.resolvingSymlinksInPath().standardizedFileURL.pathComponents
+                let rel = parts.count > root.pathComponents.count ? parts.dropFirst(root.pathComponents.count).joined(separator: "/") : url.lastPathComponent
+                files.append(["path": rel, "name": url.lastPathComponent, "mod": Int(mod.timeIntervalSince1970 * 1000), "b64": data.base64EncodedString()])
+            }
             DispatchQueue.main.async {
-                if let coordError { self.call("__folderError", coordError.localizedDescription); return }
                 self.call("__folderBegin", folder.lastPathComponent)
                 for f in files { self.call("__folderFile", f) }
-                self.call("__folderEnd", nil)
-                if notDownloaded > 0 {
-                    self.webView?.evaluateJavaScript("toast&&toast('\(notDownloaded) fichier(s) iCloud pas encore téléchargé(s) : relance la synchronisation dans un moment.',6000)")
-                }
+                self.call("__folderEnd", ["failed": failed])
+                self.syncing = false
             }
         }
     }
