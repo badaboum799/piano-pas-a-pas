@@ -139,6 +139,7 @@ body:has(.settings:not(.hidden)) #toast{top:auto;bottom:calc(24px + env(safe-are
 .lbtn{flex:none;background:transparent;border:0;font-size:20px;line-height:1;cursor:pointer;color:var(--muted);padding:6px}
 .lbtn.fav-on{color:var(--gold)}
 .lib-empty{color:var(--muted);text-align:center;padding:30px 0}
+.title-edit{width:100%;font:600 15px -apple-system,sans-serif;color:var(--text);background:var(--panel2);border:1px solid var(--accent);border-radius:8px;padding:5px 8px;-webkit-user-select:text;user-select:text}
 .lib-hint{display:block;margin:14px 0 4px}
 .folder-bar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:8px 8px 8px 14px;margin-bottom:12px;font-size:13px}
 .folder-bar.hidden{display:none}
@@ -278,7 +279,7 @@ body:has(.settings:not(.hidden)) #toast{top:auto;bottom:calc(24px + env(safe-are
     <div id="dupBar" class="folder-bar hidden"><span id="dupInfo"></span><button id="dupBtn" class="btn">Supprimer les doublons</button></div>
     <div id="libRecent"></div>
     <div id="libList" class="lib-list"></div>
-    <p class="credit lib-hint">La difficulté (1 très facile → 5 très difficile) est estimée par l'app ; touche le badge pour la corriger. Formats acceptés : MusicXML (.mxl, .musicxml) ou MIDI (.mid). « Importer » accepte plusieurs fichiers à la fois ; un dossier lié se met à jour avec « Synchroniser » (nouvelles partitions ajoutées, partitions modifiées remplacées).</p>
+    <p class="credit lib-hint">La difficulté (1 très facile → 5 très difficile) est estimée par l'app ; touche le badge pour la corriger, et ✎ pour corriger le titre. Formats acceptés : MusicXML (.mxl, .musicxml) ou MIDI (.mid). « Importer » accepte plusieurs fichiers à la fois ; un dossier lié se met à jour avec « Synchroniser » (nouvelles partitions ajoutées, partitions modifiées remplacées).</p>
    </div>
   </div>
   <div id="timeline">
@@ -699,6 +700,7 @@ const LEVELS=[
 const S=Object.assign({hands:'R',simp:1,mode:'wait',speed:.6,names:true,notation:'fr',reverb:'room',midiSound:'piano',accomp:true,appSound:true,from:1,to:9999,level:0},
   store.get('settings',{}),{from:1,to:9999});
 const SONGS=SONG_DEFS.map(makeSong);
+for(const [id,t] of Object.entries(store.get('titleOverride',{}))){const s=SONGS.find(x=>x.id===id);if(s){s.origTitle=s.title;s.title=t;}}
 /* ----- Partitions importées : rangées dans IndexedDB (pas de limite de nombre comme avec localStorage) ----- */
 const idb=(()=>{
   let p=null;
@@ -723,6 +725,7 @@ function fingerprint(rec){
 }
 function songFromImport(imp){
   const s=imp.type==='midi'?parseMIDI(b64ToBuf(imp.b64),imp.title):imp.type==='ai'?buildAiSong(imp.data,imp.title).song:parseMusicXML(imp.xml,imp.title);
+  if(imp.customTitle) s.title=imp.title;
   return Object.assign(s,{id:imp.id,key:imp.key||null,mod:imp.mod||0,size:imp.size||0,hash:imp.hash||fingerprint(imp),rec:imp,added:imp.added||addedFromId(imp.id)});
 }
 function addedFromId(id){const t=String(id).replace(/^imp-/,'');return /^\d+$/.test(t)?+t:(parseInt(t.slice(0,-5),36)||0);}
@@ -1504,6 +1507,29 @@ function findDupes(){
   }
   return extra;
 }
+// Renommer un morceau (titre vide = retour au titre d'origine pour un morceau intégré)
+async function renameSong(song,title){
+  title=title.trim().replace(/\s+/g,' ');
+  if(song.imported){
+    if(!title||title===song.title) return;
+    song.title=title;if(song.rec){song.rec.title=title;song.rec.customTitle=true;await saveImport(song.rec);}
+  }else{
+    const o=store.get('titleOverride',{});
+    if(!song.origTitle) song.origTitle=song.title;
+    if(!title||title===song.origTitle){delete o[song.id];song.title=song.origTitle;}else{o[song.id]=title;song.title=title;}
+    store.set('titleOverride',o);
+  }
+  fillSongs();renderLibrary();toast(`Titre enregistré : « ${song.title} ».`);
+}
+function editTitle(song,info){
+  const inp=document.createElement('input');inp.type='text';inp.className='title-edit';inp.value=song.title;inp.maxLength=120;
+  inp.onclick=e=>e.stopPropagation();
+  let done=false;
+  const finish=save=>{if(done) return;done=true;if(save) renameSong(song,inp.value);else renderLibrary();};
+  inp.onkeydown=e=>{e.stopPropagation();if(e.key==='Enter'){e.preventDefault();finish(true);}if(e.key==='Escape'){e.preventDefault();finish(false);}};
+  inp.onblur=()=>finish(true);
+  info.firstChild.replaceWith(inp);inp.focus();inp.select();
+}
 function renderLibrary(){
   const dupes=findDupes();
   $('dupBar').classList.toggle('hidden',!dupes.length);
@@ -1555,7 +1581,9 @@ function renderLibrary(){
     const fav=document.createElement('button');fav.className='lbtn'+(favs.has(s.id)?' fav-on':'');fav.textContent=favs.has(s.id)?'★':'☆';
     fav.title=favs.has(s.id)?'Retirer des favoris':'Ajouter aux favoris';
     fav.onclick=e=>{e.stopPropagation();const f=new Set(store.get('favs',[]));f.has(s.id)?f.delete(s.id):f.add(s.id);store.set('favs',[...f]);renderLibrary();};
-    row.append(badge(s),info,bb,fav);
+    const ed=document.createElement('button');ed.className='lbtn';ed.textContent='✎';ed.title='Modifier le titre';
+    ed.onclick=e=>{e.stopPropagation();editTitle(s,info);};
+    row.append(badge(s),info,bb,ed,fav);
     if(s.imported){const del=document.createElement('button');del.className='lbtn';del.textContent='🗑';del.title='Supprimer cette partition';
       del.onclick=e=>{e.stopPropagation();deleteImports([s]);};row.appendChild(del);}
     box.appendChild(row);
