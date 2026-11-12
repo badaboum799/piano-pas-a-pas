@@ -1632,7 +1632,9 @@ function layoutScore(){
 function fitScore(){
   const svg=$('scoreInner').querySelector('svg');if(!svg) return;
   const h=$('scoreView').clientHeight-34,natH=svg.getBoundingClientRect().height/(SV.scale||1)||1;
-  SV.scale=Math.max(.5,Math.min(2.5,h/natH));
+  // grossissement limité (1,6) pour garder plusieurs mesures visibles ; la partition est centrée verticalement
+  SV.scale=Math.max(.5,Math.min(1.6,h/natH));
+  $('scoreInner').style.top=Math.max(12,Math.round(($('scoreView').clientHeight-natH*SV.scale)/2))+'px';
   $('scoreInner').style.transform=`scale(${SV.scale})`;
   SV.xs=SV.rawXs.map(p=>({beat:p.beat,x:p.x*SV.scale}));
 }
