@@ -148,7 +148,9 @@ body:has(.settings:not(.hidden)) #toast{top:auto;bottom:calc(24px + env(safe-are
 #rangeChip{display:none}
 #fsBtn{font-size:18px;padding:5px 11px}
 /* partition classique */
-#scoreView{position:absolute;left:0;right:0;top:0;background:#fbfaf6;overflow:hidden;border-bottom:3px solid var(--accent);z-index:2}
+#scoreView{position:absolute;left:0;right:0;top:0;height:calc((100% - var(--kbh,140px)) * .48);background:#fbfaf6;overflow:hidden;border-bottom:3px solid var(--accent);z-index:2;isolation:isolate;transform:translateZ(0)}
+#stage.v-score #scoreView{height:calc(100% - var(--kbh,140px))}
+#scoreInner svg{background:#fbfaf6}
 #scoreView.hidden{display:none}
 #scoreInner{position:absolute;left:0;top:16px;transform-origin:0 0;will-change:transform}
 #scoreInner svg{display:block}
@@ -1321,7 +1323,7 @@ function draw(){
   ctx.fillStyle='#0f1220';ctx.fillRect(0,0,W,H);
   if(!R) return;
   const L=getLayout(),kbH=kbHeight(),hitY=H-kbH,spb=secPerBeat();
-  const topY=S.view==='mixed'&&!$('scoreView').classList.contains('hidden')?scoreArea():0; // haut de la zone visible
+  const sv=$('scoreView'),topY=S.view==='mixed'&&!sv.classList.contains('hidden')?sv.offsetHeight:0; // haut de la zone visible (sous la partition)
   const ppb0=Math.max(55,Math.min(230,190*spb)),ppb=topY?Math.min(ppb0*(hitY-topY)/hitY,(hitY-topY)/4.5):ppb0,pos=R.pos,now=performance.now(); // en Mixte : au moins 4,5 temps visibles
   drawBadge.top=topY;
   // couloirs
@@ -1621,14 +1623,15 @@ function scoreArea(){ // hauteur de la partition selon la vue
   return S.view==='score'?fall:Math.round(fall*.48);
 }
 function layoutScore(){
-  const v=$('scoreView'),show=S.view!=='falling';
+  const v=$('scoreView'),st=$('stage'),show=S.view!=='falling';
+  st.style.setProperty('--kbh',Math.round(kbHeight())+'px');
+  st.classList.toggle('v-score',S.view==='score');st.classList.toggle('v-mixed',S.view==='mixed');
   v.classList.toggle('hidden',!show);if(!show) return;
-  v.style.height=scoreArea()+'px';
   fitScore();
 }
 function fitScore(){
   const svg=$('scoreInner').querySelector('svg');if(!svg) return;
-  const h=scoreArea()-34,natH=svg.getBoundingClientRect().height/(SV.scale||1)||1;
+  const h=$('scoreView').clientHeight-34,natH=svg.getBoundingClientRect().height/(SV.scale||1)||1;
   SV.scale=Math.max(.5,Math.min(2.5,h/natH));
   $('scoreInner').style.transform=`scale(${SV.scale})`;
   SV.xs=SV.rawXs.map(p=>({beat:p.beat,x:p.x*SV.scale}));
@@ -1686,6 +1689,7 @@ function applyScoreState(force){
 function updateScore(){
   if(S.view==='falling'||!SV.ready||!R) return;
   const W2=$('scoreView').clientWidth,cx=Math.round(W2*.3);
+  const vh=$('scoreView').clientHeight;if(vh!==SV.lastH){SV.lastH=vh;fitScore();}
   $('scoreInner').style.transform=`translateX(${cx-scoreX(Math.max(R.pos,R.startBeat-R.countIn))}px) scale(${SV.scale})`;
   applyScoreState(false);
   // décompte et « À toi » aussi visibles sur la partition
@@ -1700,7 +1704,7 @@ function toggleFullscreen(force){
   const on=force!==undefined?force:!document.body.classList.contains('fs');
   document.body.classList.toggle('fs',on);
   try{
-    if(on&&document.documentElement.requestFullscreen&&!document.fullscreenElement) document.documentElement.requestFullscreen().catch(()=>{});
+    if(on&&!window.__nativeMIDI&&document.documentElement.requestFullscreen&&!document.fullscreenElement) document.documentElement.requestFullscreen().catch(()=>{});
     if(!on&&document.fullscreenElement) document.exitFullscreen().catch(()=>{});
   }catch(e){}
   setTimeout(()=>{resize();layoutScore();},60);
