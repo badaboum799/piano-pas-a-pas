@@ -1698,7 +1698,11 @@ function updateScore(){
   else if(R.playing&&R.waiting&&S.mode==='wait'&&R.groups[R.gi]) msg='À toi : '+R.groups[R.gi].notes.filter(n=>!n.hit).map(n=>fmtName(n.midi)).join(' + ');
   const m=$('svMsg');if(m.textContent!==msg&&SV.ready){m.textContent=msg;m.classList.toggle('hidden',!msg);}
 }
-function setView(v){S.view=v;saveSettings();refreshUI();layoutScore();if(v!=='falling') buildScore();}
+function setView(v){
+  S.view=v;saveSettings();refreshUI();layoutScore();if(v!=='falling') buildScore();
+  // Mixte a besoin de place : on passe en plein écran (le bouton ⤢ permet d'en sortir)
+  if(v==='mixed'&&!document.body.classList.contains('fs')){toggleFullscreen(true);toast('Plein écran activé pour la vue Mixte · ⤢ en haut à droite pour en sortir',4000);}
+}
 /* ----- plein écran : on cache les barres, il reste la musique, le clavier et quelques commandes ----- */
 function toggleFullscreen(force){
   const on=force!==undefined?force:!document.body.classList.contains('fs');
