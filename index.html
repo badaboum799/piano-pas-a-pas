@@ -1563,7 +1563,9 @@ function keyAlters(fifths){const o={C:0,D:0,E:0,F:0,G:0,A:0,B:0};const sh='FCGDA
 function scoreXML(song,notes,fromM,toM,opts){
   const ms=song.measureStarts,fifths=estimateKey(notes),ka=keyAlters(fifths),spell=fifths>=0?SPELL_SHARP:SPELL_FLAT;
   const bpm=song.beatsPerMeasure,ts=Number.isInteger(bpm)?[bpm,4]:Number.isInteger(bpm*2)?[bpm*2,8]:[Math.round(bpm*4),16];
-  const r=x=>Math.round(x*DIV),names=NAMES_FR;
+  const r=x=>Math.round(x*DIV),STEP_FR={C:'Do',D:'Ré',E:'Mi',F:'Fa',G:'Sol',A:'La',B:'Si'};
+  // nom de la note sous la portée : Do Ré Mi ou C D E (réglage), avec ♯ / ♭ selon l'orthographe de la partition
+  const noteName=(step,alt)=>(S.notation==='en'?step:STEP_FR[step])+(alt===1?'♯':alt===-1?'♭':'');
   let xml='<?xml version="1.0" encoding="UTF-8"?><score-partwise version="3.1"><part-list><score-part id="P1"><part-name></part-name></score-part></part-list><part id="P1">';
   // voix par main : notes d'une même attaque et même durée = accord ; chevauchements = 2e voix
   const voicesOf=hand=>{
@@ -1601,7 +1603,7 @@ function scoreXML(song,notes,fromM,toM,opts){
               const f=opts.fingers&&pi===0&&!tieIn?(n.finger||n.fingerAuto):0;
               if(f) not+=`<technical><fingering placement="${staff===1?'above':'below'}">${f}</fingering></technical>`;
               if(p.tuplet&&ni===0) not+='';
-              xml+=`<note>${ni>0?'<chord/>':''}<pitch><step>${step}</step>${alt?`<alter>${alt}</alter>`:''}<octave>${oct}</octave></pitch><duration>${p.d}</duration>${ties}<voice>${vnum}</voice><type>${p.type}</type>${'<dot/>'.repeat(p.dots)}${accEl}${p.tuplet?'<time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification>':''}<staff>${staff}</staff>${not?`<notations>${not}</notations>`:''}${opts.names&&pi===0&&!tieIn&&ni===ns.length-1&&staff===1?`<lyric><text>${names[pc]}</text></lyric>`:''}</note>`;
+              xml+=`<note>${ni>0?'<chord/>':''}<pitch><step>${step}</step>${alt?`<alter>${alt}</alter>`:''}<octave>${oct}</octave></pitch><duration>${p.d}</duration>${ties}<voice>${vnum}</voice><type>${p.type}</type>${'<dot/>'.repeat(p.dots)}${accEl}${p.tuplet?'<time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification>':''}<staff>${staff}</staff>${not?`<notations>${not}</notations>`:''}${opts.names&&pi===0&&!tieIn&&ni===ns.length-1&&staff===1?`<lyric><text>${noteName(step,alt)}</text></lyric>`:''}</note>`;
             });
           });
           t=en;wrote=true;
@@ -1633,7 +1635,7 @@ function fitScore(){
 }
 async function buildScore(){
   if(S.view==='falling'||!R) return;
-  const key=[SONG.id,S.simp,R.from,R.to,S.fingers,S.names,SONG.title].join('|');
+  const key=[SONG.id,S.simp,R.from,R.to,S.fingers,S.names,S.notation,SONG.title].join('|');
   if(key===SV.key&&SV.ready){applyScoreState(true);return;}
   SV.key=key;SV.ready=false;$('svMsg').textContent='Préparation de la partition…';$('svMsg').classList.remove('hidden');
   try{
@@ -1838,6 +1840,7 @@ document.querySelectorAll('.seg[data-key]').forEach(seg=>{
     else S[key]=key==='simp'?parseInt(b.dataset.v):b.dataset.v;
     S.level=matchLevel();saveSettings();refreshUI();
     if(key==='reverb') applyReverb();
+    else if(key==='notation') buildScore();
     else if(key==='midiSound'){if(S.midiSound==='app'){audio();toast("Les notes de ton piano sont maintenant jouées par l'app. Baisse le volume du piano pour n'entendre que l'appareil.",5000);}}
     else if(key!=='notation'&&key!=='midiSound') resetRun(); // la notation, l'acoustique ou la source du son ne relancent pas la partie
   });
