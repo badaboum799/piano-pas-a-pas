@@ -1545,7 +1545,7 @@ function splitDur(d){ // découpe une durée en valeurs écrivables (liées entr
   const out=[];let rest=d,guard=0;
   while(rest>0&&guard++<20){
     const t=TRIPLETS.find(x=>x[0]===rest);if(t){out.push({d:rest,type:t[1],dots:0,tuplet:true});break;}
-    const n=NOTE_TYPES.find(x=>x[0]<=rest);if(!n){out.push({d:rest,type:'64th',dots:0});break;}
+    const n=NOTE_TYPES.find(x=>x[0]<=rest);if(!n){if(out.length) out[out.length-1].d+=rest;else out.push({d:rest,type:'64th',dots:0});break;}
     out.push({d:n[0],type:n[1],dots:n[2]});rest-=n[0];
   }
   return out;
@@ -1565,14 +1565,15 @@ function keyAlters(fifths){const o={C:0,D:0,E:0,F:0,G:0,A:0,B:0};const sh='FCGDA
 function scoreXML(song,notes,fromM,toM,opts){
   const ms=song.measureStarts,fifths=estimateKey(notes),ka=keyAlters(fifths),spell=fifths>=0?SPELL_SHARP:SPELL_FLAT;
   const bpm=song.beatsPerMeasure,ts=Number.isInteger(bpm)?[bpm,4]:Number.isInteger(bpm*2)?[bpm*2,8]:[Math.round(bpm*4),16];
-  const r=x=>Math.round(x*DIV),STEP_FR={C:'Do',D:'Ré',E:'Mi',F:'Fa',G:'Sol',A:'La',B:'Si'};
+  // temps arrondis à une valeur écrivable : grille des triples-croches pointées (6) ou des triolets (16)
+  const r=x=>{const v=x*DIV,a=Math.round(v/6)*6,b=Math.round(v/16)*16;return Math.abs(b-v)<Math.abs(a-v)-.5?b:a;},STEP_FR={C:'Do',D:'Ré',E:'Mi',F:'Fa',G:'Sol',A:'La',B:'Si'};
   // nom de la note sous la portée : Do Ré Mi ou C D E (réglage), avec ♯ / ♭ selon l'orthographe de la partition
   const noteName=(step,alt)=>(S.notation==='en'?step:STEP_FR[step])+(alt===1?'♯':alt===-1?'♭':'');
   let xml='<?xml version="1.0" encoding="UTF-8"?><score-partwise version="3.1"><part-list><score-part id="P1"><part-name></part-name></score-part></part-list><part id="P1">';
   // voix par main : notes d'une même attaque et même durée = accord ; chevauchements = 2e voix
   const voicesOf=hand=>{
     const ev=new Map();
-    for(const n of notes.filter(n=>n.hand===hand)){const k=r(n.start)+'|'+r(n.dur);if(!ev.has(k)) ev.set(k,{s:r(n.start),d:Math.max(6,r(n.dur)),ns:[]});ev.get(k).ns.push(n);}
+    for(const n of notes.filter(n=>n.hand===hand)){const k=r(n.start)+'|'+r(n.start+n.dur);if(!ev.has(k)) ev.set(k,{s:r(n.start),d:Math.max(6,r(n.start+n.dur)-r(n.start)),ns:[]});ev.get(k).ns.push(n);}
     const evs=[...ev.values()].sort((a,b)=>a.s-b.s||b.ns[0].midi-a.ns[0].midi),voices=[[],[]],ends=[-1,-1];
     for(const e of evs){let v=ends[0]<=e.s?0:ends[1]<=e.s?1:0;if(v===0&&ends[0]>e.s){e.d=Math.max(6,e.d);e.s=Math.max(e.s,ends[0]);}voices[v].push(e);ends[v]=e.s+e.d;}
     return voices.filter(v=>v.length);
@@ -1587,30 +1588,41 @@ function scoreXML(song,notes,fromM,toM,opts){
       const vs=hands[hand].length?hands[hand]:[[]];
       vs.forEach((voice,vi)=>{
         if(!first) xml+=`<backup><duration>${len}</duration></backup>`;first=false;
-        const vnum=staff===1?vi+1:vi+5,acc={};let t=a,wrote=false;
-        const rest=d=>{for(const p of splitDur(d)){xml+=`<note><rest/><duration>${p.d}</duration><voice>${vnum}</voice><type>${p.type}</type>${'<dot/>'.repeat(p.dots)}${p.tuplet?'<time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification>':''}<staff>${staff}</staff></note>`;}};
+        const vnum=staff===1?vi+1:vi+5,acc={},units=[];let t=a;
+        const TM='<time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification>';
+        // chaque « unité » = un silence ou un accord ; le XML est écrit à la fin (crochets de triolets)
+        const rest=d=>{for(const p of splitDur(d)) units.push({p,mk:tup=>`<note><rest/><duration>${p.d}</duration><voice>${vnum}</voice><type>${p.type}</type>${'<dot/>'.repeat(p.dots)}${p.tuplet?TM:''}<staff>${staff}</staff>${tup?`<notations>${tup}</notations>`:''}</note>`});};
         for(const e of voice){
-          const s=Math.max(e.s,a),en=Math.min(e.s+e.d,b);if(en<=a||s>=b) continue;
+          const s=Math.max(e.s,a),en=Math.min(e.s+e.d,b);if(en<=a||s>=b||en<=t) continue;
           if(s>t) rest(s-t);
-          const parts=splitDur(en-s),tieIn=e.s<a,tieOut=e.s+e.d>b;
+          const st=Math.max(s,t),parts=splitDur(en-st),tieIn=e.s<a||st>s,tieOut=e.s+e.d>b;
           parts.forEach((p,pi)=>{
             const ns=e.ns.slice().sort((x,y)=>x.midi-y.midi);
-            ns.forEach((n,ni)=>{
+            units.push({p,mk:tup=>ns.map((n,ni)=>{
               const pc=((n.midi%12)+12)%12,[step,alt]=spell[pc],oct=Math.floor(n.midi/12)-1,key=step+oct;
               const cur=key in acc?acc[key]:ka[step];let accEl='';
               if(alt!==cur&&pi===0&&!tieIn){accEl=`<accidental>${alt===1?'sharp':alt===-1?'flat':'natural'}</accidental>`;acc[key]=alt;}
               const tStart=(pi<parts.length-1)||(tieOut&&pi===parts.length-1),tStop=pi>0||tieIn;
               const ties=(tStop?'<tie type="stop"/>':'')+(tStart?'<tie type="start"/>':'');
-              let not=(tStop?'<tied type="stop"/>':'')+(tStart?'<tied type="start"/>':'');
+              let not=(tStop?'<tied type="stop"/>':'')+(tStart?'<tied type="start"/>':'')+(ni===0?tup:'');
               const f=opts.fingers&&pi===0&&!tieIn?(n.finger||n.fingerAuto):0;
               if(f) not+=`<technical><fingering placement="${staff===1?'above':'below'}">${f}</fingering></technical>`;
-              if(p.tuplet&&ni===0) not+='';
-              xml+=`<note>${ni>0?'<chord/>':''}<pitch><step>${step}</step>${alt?`<alter>${alt}</alter>`:''}<octave>${oct}</octave></pitch><duration>${p.d}</duration>${ties}<voice>${vnum}</voice><type>${p.type}</type>${'<dot/>'.repeat(p.dots)}${accEl}${p.tuplet?'<time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification>':''}<staff>${staff}</staff>${not?`<notations>${not}</notations>`:''}${opts.names&&pi===0&&!tieIn&&ni===ns.length-1&&staff===1?`<lyric><text>${noteName(step,alt)}</text></lyric>`:''}</note>`;
-            });
+              return `<note>${ni>0?'<chord/>':''}<pitch><step>${step}</step>${alt?`<alter>${alt}</alter>`:''}<octave>${oct}</octave></pitch><duration>${p.d}</duration>${ties}<voice>${vnum}</voice><type>${p.type}</type>${'<dot/>'.repeat(p.dots)}${accEl}${p.tuplet?TM:''}<staff>${staff}</staff>${not?`<notations>${not}</notations>`:''}${opts.names&&pi===0&&!tieIn&&ni===ns.length-1&&staff===1?`<lyric><text>${noteName(step,alt)}</text></lyric>`:''}</note>`;
+            }).join('')});
           });
-          t=en;wrote=true;
+          t=en;
         }
         if(t<b) rest(b-t);
+        // triolets : un crochet par groupe de 3 (sans crochet, Verovio compterait des croches normales)
+        let g=null;
+        units.forEach((u,i)=>{
+          if(!u.p.tuplet){g=null;return;}
+          if(!g){g={sum:0,full:u.p.d*3};u.start=true;}
+          g.sum+=u.p.d;
+          const nx=units[i+1];
+          if(g.sum>=g.full||!nx||!nx.p.tuplet){u.stop=true;g=null;}
+        });
+        for(const u of units) xml+=u.mk((u.start?'<tuplet type="start" bracket="yes"/>':'')+(u.stop?'<tuplet type="stop"/>':''));
       });
     }
     xml+='</measure>';
@@ -1651,21 +1663,36 @@ async function buildScore(){
     const inner=$('scoreInner');inner.innerHTML=tk.renderToSVG(1);inner.style.transform='scale(1)';SV.scale=1;
     const svg=inner.querySelector('svg'),box=inner.getBoundingClientRect();
     // position horizontale de chaque instant + éléments de chaque note jouée
-    const tm=tk.renderToTimemap({includeMeasures:false});
-    const byKey=new Map();SV.rawXs=[];
+    // Chaque instant de Verovio est recalé sur le début réel de SA mesure : une petite imprécision
+    // d'écriture (rythme irrégulier d'un MIDI…) reste dans la mesure et ne s'accumule plus.
+    const tm=tk.renderToTimemap({includeMeasures:true}),ms=SONG.measureStarts,mEnd=i=>i+1<ms.length?ms[i+1]:SONG.length;
+    const mq=tm.filter(e=>e.measureOn).map(e=>e.qstamp),lastQ=tm.length?tm[tm.length-1].qstamp:0;
+    const realBeat=q=>{
+      let k=0;while(k+1<mq.length&&mq[k+1]<=q+1e-6) k++;
+      const m=Math.min(R.from-1+k,ms.length-1),q0=mq[k]??0,q1=k+1<mq.length?mq[k+1]:Math.max(lastQ,q0+1e-6);
+      const len=mEnd(m)-ms[m],vlen=q1-q0;
+      return ms[m]+(vlen>1e-6?(q-q0)*len/vlen:q-q0);
+    };
+    const cands=new Map();SV.rawXs=[];
     for(const ev of tm){
       if(!ev.on||!ev.on.length) continue;
-      let x=null;
+      const beat=realBeat(ev.qstamp);let x=null;
       for(const id of ev.on){
         const el=svg.querySelector('#'+CSS.escape(id));if(!el) continue;
-        const b=el.getBoundingClientRect();if(x===null||b.left<x) x=b.left;
-        const p=tk.getMIDIValuesForElement(id);if(p&&p.pitch!=null) byKey.set(Math.round(ev.qstamp*DIV)+'|'+p.pitch,el);
+        const bb=el.getBoundingClientRect();if(x===null||bb.left<x) x=bb.left;
+        const p=tk.getMIDIValuesForElement(id);
+        if(p&&p.pitch!=null){if(!cands.has(p.pitch)) cands.set(p.pitch,[]);cands.get(p.pitch).push({beat,el,used:false});}
       }
-      if(x!==null) SV.rawXs.push({beat:R.startBeat+ev.qstamp,x:x-box.left});
+      if(x!==null) SV.rawXs.push({beat,x:x-box.left});
     }
     SV.rawXs.sort((a,b)=>a.beat-b.beat);
+    // chaque note jouée → la note dessinée de même hauteur la plus proche dans le temps
     SV.els=new Map();
-    for(const n of R.notes){const el=byKey.get(Math.round((n.start-R.startBeat)*DIV)+'|'+n.midi);if(el) SV.els.set(n,el);n._sv='';}
+    for(const n of R.notes.slice().sort((a,b)=>a.start-b.start)){
+      n._sv='';let best=null,bd=.5;
+      for(const c of cands.get(n.midi)||[]){if(c.used) continue;const d=Math.abs(c.beat-n.start);if(d<bd){bd=d;best=c;}}
+      if(best){best.used=true;SV.els.set(n,best.el);}
+    }
     SV.ready=true;$('svMsg').classList.add('hidden');
     layoutScore();applyScoreState(true);
   }catch(e){$('svMsg').textContent='Partition indisponible : '+e.message;}
