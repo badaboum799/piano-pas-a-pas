@@ -1321,7 +1321,9 @@ function draw(){
   ctx.fillStyle='#0f1220';ctx.fillRect(0,0,W,H);
   if(!R) return;
   const L=getLayout(),kbH=kbHeight(),hitY=H-kbH,spb=secPerBeat();
-  const ppb=Math.max(55,Math.min(230,190*spb)),pos=R.pos,now=performance.now();
+  const topY=S.view==='mixed'&&!$('scoreView').classList.contains('hidden')?scoreArea():0; // haut de la zone visible
+  const ppb0=Math.max(55,Math.min(230,190*spb)),ppb=topY?Math.min(ppb0*(hitY-topY)/hitY,(hitY-topY)/4.5):ppb0,pos=R.pos,now=performance.now(); // en Mixte : au moins 4,5 temps visibles
+  drawBadge.top=topY;
   // couloirs
   for(let m=L.lo;m<=L.hi;m++){
     const k=L.map[m];if(!k) continue;
@@ -1434,18 +1436,18 @@ function draw(){
   }
   if(R.playing&&pos<R.startBeat){
     ctx.fillStyle='rgba(255,255,255,.9)';ctx.font='800 72px -apple-system,sans-serif';
-    ctx.fillText(String(Math.ceil(R.startBeat-pos-1e-6)),W/2,hitY/2);
+    ctx.fillText(String(Math.ceil(R.startBeat-pos-1e-6)),W/2,(topY+hitY)/2+24);
   }else if(R.playing&&R.waiting&&S.mode==='wait'){
     const g=R.groups[R.gi];
     if(g){const left=g.notes.filter(n=>!n.hit);
       const txt='À toi : '+left.map(n=>fmtName(n.midi)).join(' + ');
       ctx.font='700 17px -apple-system,sans-serif';const tw=ctx.measureText(txt).width;
-      ctx.fillStyle='rgba(15,18,32,.88)';rr(W/2-tw/2-14,38,tw+28,30,15);ctx.fill();
+      ctx.fillStyle='rgba(15,18,32,.88)';rr(W/2-tw/2-14,topY+38,tw+28,30,15);ctx.fill();
       ctx.strokeStyle=HAND[left[0]?.hand||'R'];ctx.lineWidth=1.5;ctx.stroke();
-      ctx.fillStyle=HAND_HOT[left[0]?.hand||'R'];ctx.fillText(txt,W/2,59);}
+      ctx.fillStyle=HAND_HOT[left[0]?.hand||'R'];ctx.fillText(txt,W/2,topY+59);}
   }else if(!R.playing&&!R.finished&&pos<=R.startBeat-R.countIn+1e-3){
     const fs=Math.max(12,Math.min(15,W/30)),maxW=W-32,mi=MODE_INFO[S.mode];
-    let y=Math.max(64,hitY*.26);
+    let y=topY?topY+50:Math.max(64,hitY*.26);
     ctx.fillStyle='rgba(232,234,246,.92)';ctx.font=`700 ${Math.round(fs*1.45)}px -apple-system,sans-serif`;
     y=wrapText(SONG.title,W/2,y,maxW,fs*1.9)+6;
     ctx.fillStyle=mi.color;ctx.font=`600 ${fs}px -apple-system,sans-serif`;
@@ -1507,7 +1509,7 @@ function drawBadge(){
   const a=`${mi.icon} ${mi.name}`,b=` · ${lvl} · ${Math.round(S.speed*100)} %`;
   ctx.font=`700 ${fs}px -apple-system,sans-serif`;const wa=ctx.measureText(a).width;
   ctx.font=`500 ${fs}px -apple-system,sans-serif`;const wb=ctx.measureText(b).width;
-  const x=10,y=10,h=fs+14,w=wa+wb+20;
+  const x=10,y=(drawBadge.top||0)+10,h=fs+14,w=wa+wb+20;
   ctx.fillStyle='rgba(15,18,32,.85)';rr(x,y,w,h,h/2);ctx.fill();
   ctx.strokeStyle=mi.color;ctx.lineWidth=1.5;ctx.stroke();
   ctx.fillStyle=mi.color;ctx.font=`700 ${fs}px -apple-system,sans-serif`;ctx.fillText(a,x+10,y+h/2+fs*.35);
@@ -1625,7 +1627,7 @@ function layoutScore(){
 function fitScore(){
   const svg=$('scoreInner').querySelector('svg');if(!svg) return;
   const h=scoreArea()-34,natH=svg.getBoundingClientRect().height/(SV.scale||1)||1;
-  SV.scale=Math.max(.5,Math.min(2.2,h/natH));
+  SV.scale=Math.max(.5,Math.min(2.5,h/natH));
   $('scoreInner').style.transform=`scale(${SV.scale})`;
   SV.xs=SV.rawXs.map(p=>({beat:p.beat,x:p.x*SV.scale}));
 }
