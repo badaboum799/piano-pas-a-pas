@@ -1,7 +1,7 @@
 import UIKit
 import WebKit
 
-/// Affiche l'app web Piano Pas à Pas en plein écran et lui fournit le MIDI natif de l'iPad.
+/// Affiche l'app web Keyla en plein écran et lui fournit le MIDI natif de l'iPad.
 final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavigationDelegate, WKUIDelegate {
     /// Adresse de l'app : les mises à jour publiées sur le site arrivent sans réinstaller l'app.
     static let appURL = URL(string: "https://badaboum799.github.io/piano-pas-a-pas/")!
@@ -69,7 +69,7 @@ final class WebViewController: UIViewController, WKScriptMessageHandler, WKNavig
         <html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head>
         <body style="background:#0f1220;color:#e8eaf6;font:17px -apple-system;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;margin:0;text-align:center">
         <div style="font-size:48px">🎹</div><h2>Pas de connexion Internet</h2>
-        <p style="color:#9aa1c7">Piano Pas à Pas a besoin d'Internet pour s'ouvrir.</p>
+        <p style="color:#9aa1c7">Keyla a besoin d'Internet pour s'ouvrir.</p>
         <a href="\(Self.appURL.absoluteString)" style="margin-top:12px;background:#7c8cff;color:#0b0e1c;padding:12px 22px;border-radius:12px;text-decoration:none;font-weight:700">Réessayer</a>
         </body></html>
         """

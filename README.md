@@ -1,4 +1,4 @@
-# Piano Pas à Pas
+# Keyla
 
 Prototype d'application d'apprentissage du piano : les partitions deviennent des notes qui tombent, la difficulté s'adapte au niveau de l'élève, et le piano numérique est détecté en USB (Web MIDI).
 
