@@ -1657,7 +1657,7 @@ async function buildScore(){
   SV.key=key;SV.ready=false;$('svMsg').textContent='Préparation de la partition…';$('svMsg').classList.remove('hidden');
   try{
     const tk=await loadVerovio();if(key!==SV.key) return;
-    const xml=scoreXML(SONG,R.notes,R.from-1,R.to-1,{fingers:S.fingers,names:S.names});
+    const xml=scoreXML(SONG,R.notes,R.from-1,R.to-1,{fingers:S.fingers,names:false}); // pas de noms sous la portée : un seul possible par accord
     tk.setOptions({scale:45,breaks:'none',adjustPageHeight:true,adjustPageWidth:true,pageWidth:100000,pageMarginLeft:40,pageMarginRight:200,pageMarginTop:40,pageMarginBottom:20,header:'none',footer:'none',lyricSize:3.2,spacingStaff:6});
     tk.loadData(xml);
     const inner=$('scoreInner');inner.innerHTML=tk.renderToSVG(1);inner.style.transform='scale(1)';SV.scale=1;
